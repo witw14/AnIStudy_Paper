@@ -1,0 +1,227 @@
+:root {
+  --canvas: #f6f8f9;
+  --text: #293d3e;
+  --accent-soft: #eaf2ed;
+  --graph-surface: #fafbf9;
+}
+:root[data-theme="ocean"] {
+  --green: #286796;
+  --canvas: #f0f5fa;
+  --paper: #fcfdff;
+  --soft: #edf4fa;
+  --accent-soft: #e2edf8;
+  --border: #dce5ef;
+  --text: #283d50;
+  --muted: #758899;
+  --graph-surface: #f8fbff;
+}
+:root[data-theme="violet"] {
+  --green: #705397;
+  --canvas: #f5f2fa;
+  --paper: #fefcff;
+  --soft: #f3eef8;
+  --accent-soft: #ece3f5;
+  --border: #e6dfef;
+  --text: #3c334a;
+  --muted: #91839e;
+  --graph-surface: #fcfaff;
+}
+:root[data-theme="amber"] {
+  --green: #886026;
+  --canvas: #f8f4ed;
+  --paper: #fffdf8;
+  --soft: #f7f1e5;
+  --accent-soft: #f2e7cf;
+  --border: #e9e0ce;
+  --text: #473e2f;
+  --muted: #948772;
+  --graph-surface: #fffcf6;
+}
+body {
+  background: var(--canvas);
+  color: var(--text);
+}
+.primary,
+.send-button {
+  background: var(--green);
+  color: #fff;
+}
+.primary:hover,
+.send-button:hover {
+  background: var(--green);
+  color: #fff;
+  filter: brightness(0.94);
+}
+.graph-spacing input[type="range"],
+.preference-toggle input,
+.node-catalog input[type="checkbox"] {
+  accent-color: var(--green);
+}
+nav button.active::before {
+  background: var(--green);
+}
+.graph-tabs button.active {
+  background: var(--accent-soft);
+  color: var(--green);
+}
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--green);
+}
+.nav-item.active,
+.sidebar nav button.active {
+  background: var(--accent-soft);
+  color: var(--green);
+}
+.customization {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+}
+.customization h3 {
+  margin-top: 22px;
+}
+.customization p {
+  font-size: 12px;
+}
+.size-settings {
+  display: grid;
+  gap: 10px;
+}
+.modal .size-setting {
+  display: grid;
+  grid-template-columns: 48px minmax(70px, 1fr) 48px;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+.size-setting input {
+  width: 100%;
+  padding: 0;
+}
+.size-setting output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.node-size-preview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 14px 0;
+  overflow-x: auto;
+}
+.node-size-preview > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 9px;
+  min-height: 160px;
+}
+.size-preview-circle {
+  display: block;
+  flex-shrink: 0;
+  border: 1.5px solid var(--green);
+  border-radius: 50%;
+  background: var(--accent-soft);
+}
+.size-preview-circle.hollow {
+  background: transparent;
+}
+.theme-options,
+.customization-actions,
+.importance-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.theme-options button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px;
+}
+.theme-options button[aria-pressed="true"],
+.importance-options button[aria-pressed="true"] {
+  border-color: var(--green);
+  background: var(--accent-soft);
+  color: var(--green);
+}
+.theme-options i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+.modal .motion-option {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+.motion-option input {
+  width: auto;
+}
+.modal .timeline-column-setting {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+.timeline-column-setting input {
+  width: 90px;
+}
+.customization-actions a {
+  display: inline-flex;
+  align-items: center;
+}
+.modal .config-import {
+  margin: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.config-import input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.config-import:focus-within {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.config-error {
+  color: #b64545;
+}
+.importance-editor {
+  margin: 10px 0 14px;
+}
+.importance-editor > small {
+  margin-left: 8px;
+  color: var(--muted);
+}
+.importance-options {
+  margin-top: 10px;
+}
+.node-alternate-title {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+@media (max-width: 600px) {
+  .node-size-preview {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .top-actions {
+    gap: 6px;
+  }
+}

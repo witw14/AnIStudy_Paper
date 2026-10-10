@@ -1,0 +1,47 @@
+{
+  "name": "anistudy-paper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "node server/index.mjs",
+    "build": "tsc -b && vite build",
+    "start": "node server/index.mjs --production",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:reading": "playwright test -c playwright.reading.config.ts",
+    "test:firefox": "node scripts/check-firefox-fonts.mjs",
+    "test:desktop": "playwright test -c playwright.desktop.config.ts"
+  },
+  "dependencies": {
+    "@fontsource/noto-sans-sc": "5.3.0",
+    "cheerio": "^1.2.0",
+    "electron": "44.5.1",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.2.5",
+    "katex": "^0.18.10",
+    "lucide-react": "^0.468.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "sanitize-html": "^2.18.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.7"
+  }
+}
