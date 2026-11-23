@@ -4,14 +4,36 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import type { SourceCitation } from "./types";
+type MarkdownNode = { type: string; value?: string; children?: MarkdownNode[] };
+function remarkNoteBreaks() {
+  return (tree: MarkdownNode) => {
+    function visit(node: MarkdownNode) {
+      if (!node.children) return;
+      node.children = node.children.flatMap((child) => {
+        if (child.type === "text" && child.value?.includes("\n"))
+          return child.value
+            .split("\n")
+            .flatMap((value, index) => [
+              ...(index ? [{ type: "break" }] : []),
+              { type: "text", value },
+            ]);
+        visit(child);
+        return [child];
+      });
+    }
+    visit(tree);
+  };
+}
 export function Markdown({
   children,
   citations = [],
   onCitation,
+  preserveLineBreaks = false,
 }: {
   children: string;
   citations?: SourceCitation[];
   onCitation?: (source: SourceCitation) => void;
+  preserveLineBreaks?: boolean;
 }) {
   const content = children
     .replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => `\n$$\n${math}\n$$\n`)
@@ -19,7 +41,11 @@ export function Markdown({
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkMath,
+          ...(preserveLineBreaks ? [remarkNoteBreaks] : []),
+        ]}
         rehypePlugins={[rehypeKatex]}
         skipHtml
         components={{

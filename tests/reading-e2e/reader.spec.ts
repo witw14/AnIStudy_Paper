@@ -99,7 +99,7 @@ test("PDF and native HTML open from the same paper with outline, equations, tabl
   await expect(
     detail.getByRole("status", { name: "原文获取状态" }),
   ).toContainText("原文已就绪");
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await expect(reader.locator(".reader-source-label")).toContainText(
     "arXiv 原始 HTML",
@@ -189,7 +189,7 @@ test("HTML highlights and annotation notes save automatically and survive closin
   context,
 }) => {
   const { workspaceId, paperId, detail } = await setup(page, request, context);
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   const toolsHeight = (await reader
     .locator(".reader-selection-tools")
@@ -199,7 +199,7 @@ test("HTML highlights and annotation notes save automatically and survive closin
     (await reader.locator(".reader-selection-tools").boundingBox())!.height,
   ).toBe(toolsHeight);
   await reader.getByRole("button", { name: "绿色高亮", exact: true }).click();
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
+  await reader.getByRole("button", { name: "标注选段", exact: true }).click();
   await reader.locator(".reading-highlight").first().hover();
   const note = reader.getByPlaceholder("添加标注备注，自动保存…");
   await note.fill("这段说明组合特征的机制。");
@@ -230,7 +230,7 @@ test("HTML highlights and annotation notes save automatically and survive closin
     .click();
   await page
     .getByRole("dialog", { name: "节点详情" })
-    .getByRole("button", { name: "阅读 HTML", exact: true })
+    .getByRole("button", { name: "打开HTML", exact: true })
     .click();
   await reader.locator(".reading-highlight").first().hover();
   await expect(note).toHaveValue("这段说明组合特征的机制。");
@@ -268,10 +268,15 @@ test("technology tags and node details navigate to the same paragraph without ex
     "2401.12345",
     true,
   );
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   const tag = reader.locator(".reader-tech-tag").first();
   await expect(tag).toContainText("Attention Routing");
+  await expect(tag).toContainText("正式讲解");
+  await expect(reader.locator(".reader-tech-tag")).toHaveCount(1);
+  await expect(reader.locator(".reader-tech-tag")).not.toContainText(
+    "术语匹配",
+  );
   await tag.locator("button").first().click();
   await expect(reader.locator(".reading-block.is-focused")).toContainText(
     "Attention Routing",
@@ -303,7 +308,7 @@ test("selected-text explanation and normal chat replies carry validated source b
   context,
 }) => {
   const { detail } = await setup(page, request, context);
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await selectText(page, "learned attention weights");
   await reader
@@ -334,7 +339,7 @@ test("selected-text explanation and normal chat replies carry validated source b
   await reader.getByRole("button", { name: "关闭原文阅读" }).click();
   await page
     .getByRole("dialog", { name: "节点详情" })
-    .getByRole("button", { name: "与论文对话", exact: true })
+    .getByRole("button", { name: "论文对话", exact: true })
     .click();
   await expect(page.locator(".chat-panel .source-citation")).toHaveCount(2);
   await page.locator(".chat-panel .source-citation").first().click();
@@ -344,13 +349,58 @@ test("selected-text explanation and normal chat replies carry validated source b
   await reader.getByRole("button", { name: "对话", exact: true }).click();
   await expect(reader.locator(".reader-chat-message")).toHaveCount(4);
 });
+test("reader chat shares thinking controls with paper chat and persists changes", async ({
+  page,
+  request,
+  context,
+}) => {
+  const old = await (await request.get("/api/settings")).json();
+  await request.put("/api/settings", {
+    data: {
+      baseUrl: "https://api.deepseek.com/v1",
+      model: "deepseek-v4-pro",
+      deepThinking: "auto",
+      reasoningEffort: "auto",
+    },
+  });
+  try {
+    const { detail } = await setup(page, request, context);
+    await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
+    const reader = page.getByRole("dialog", { name: "论文原文阅读" });
+    await reader.getByRole("button", { name: "对话", exact: true }).click();
+    await reader
+      .getByLabel("深度思考", { exact: true })
+      .selectOption("enabled");
+    await expect(reader.getByLabel("思考强度", { exact: true })).toBeEnabled();
+    await reader.getByLabel("思考强度", { exact: true }).selectOption("low");
+    await expect
+      .poll(
+        async () =>
+          (await (await request.get("/api/settings")).json()).reasoningEffort,
+      )
+      .toBe("low");
+    await reader
+      .getByRole("button", { name: "关闭原文阅读", exact: true })
+      .click();
+    await detail.getByRole("button", { name: "论文对话", exact: true }).click();
+    await expect(
+      page.locator(".chat-panel").getByLabel("深度思考", { exact: true }),
+    ).toHaveValue("enabled");
+    await expect(
+      page.locator(".chat-panel").getByLabel("思考强度", { exact: true }),
+    ).toHaveValue("low");
+  } finally {
+    await request.put("/api/settings", { data: old });
+  }
+});
+
 test("converted HTML announces its limitations, and failed downloads leave a retryable paper record", async ({
   page,
   request,
   context,
 }) => {
   const { detail } = await setup(page, request, context, "2401.00001");
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await expect(reader.locator(".reader-source-label")).toContainText(
     "pdf 自动转换 HTML",
@@ -398,52 +448,228 @@ test("converted HTML announces its limitations, and failed downloads leave a ret
   await expect(
     page
       .getByRole("dialog", { name: "节点详情" })
-      .getByRole("button", { name: "重试获取原文", exact: true }),
+      .getByRole("button", { name: "获取原文", exact: true }),
   ).toBeEnabled();
 });
 
-test("selecting any part of a highlight removes the complete range and asks before deleting a note", async ({
+test("highlighting overlapping text preserves its note and only the click action removes a highlight without confirmation", async ({
   page,
   request,
   context,
 }) => {
   const { detail, workspaceId, paperId } = await setup(page, request, context);
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await selectText(page, "Attention Routing combines relevant features");
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
+  await page.keyboard.press("Control+b");
   await expect(reader.locator(".reading-highlight")).toHaveCount(1);
   await reader.locator(".reading-highlight").hover();
   const popup = reader.getByRole("dialog", { name: "高亮笔记" });
   await popup
     .getByPlaceholder("添加标注备注，自动保存…")
     .fill("必须保留的标注笔记");
-  await expect(reader.locator(".reading-highlight.has-note")).toHaveCount(1);
   await popup.getByRole("button", { name: "关闭高亮笔记" }).click();
-  await selectText(page, "Routing");
-  page.once("dialog", (dialog) => dialog.dismiss());
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
-  await expect(reader.locator(".reading-highlight")).toHaveCount(1);
-  page.once("dialog", (dialog) => dialog.accept());
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
+  await selectText(
+    page,
+    "Attention Routing combines relevant features using learned attention weights.",
+  );
+  await reader.getByRole("button", { name: "标注选段", exact: true }).click();
+  await expect(reader.locator(".reading-highlight.has-note")).toHaveCount(1);
+  const docPath = `/api/workspaces/${workspaceId}/papers/${paperId}/document`;
+  const current = await (await request.get(docPath)).json();
+  expect(current.annotations[0].note).toBe("必须保留的标注笔记");
+  expect(current.annotations[0].quote).toBe(
+    "Attention Routing combines relevant features using learned attention weights.",
+  );
+  let confirmations = 0;
+  page.on("dialog", async (d) => {
+    confirmations++;
+    await d.dismiss();
+  });
+  await reader.locator(".reading-highlight").click();
+  const tools = reader.getByRole("toolbar", { name: "标注操作" });
+  await expect(tools.getByRole("button")).toHaveCount(2);
+  expect(await tools.innerText()).toBe("");
+  await tools.getByRole("button", { name: "引用标注至对话" }).click();
+  await expect(reader.getByLabel("原文阅读问题", { exact: true })).toHaveValue(
+    "请解释：‘Attention Routing combines relevant features using learned attention weights.’",
+  );
+  await reader.locator(".reading-highlight").click();
+  await tools.getByRole("button", { name: "取消标注并删除笔记" }).click();
   await expect(reader.locator(".reading-highlight")).toHaveCount(0);
-  expect(
-    (
-      await (
-        await request.get(
-          `/api/workspaces/${workspaceId}/papers/${paperId}/document`,
-        )
-      ).json()
-    ).annotations,
-  ).toHaveLength(0);
-  await selectText(page, "relative scale");
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
-  await selectText(page, "scale");
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
+  expect((await (await request.get(docPath)).json()).annotations).toHaveLength(
+    0,
+  );
+  expect(confirmations).toBe(0);
+});
+
+test("annotation popup is borderless and compact, grows with its longest line, handles Enter/Shift+Enter/Ctrl+Enter and disappears immediately on pointer exit", async ({
+  page,
+  request,
+  context,
+}) => {
+  const { detail } = await setup(page, request, context);
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: "论文原文阅读" });
+  await selectText(page, "Attention Routing");
+  await page.keyboard.press("Control+b");
+  const mark = reader.locator(".reading-highlight").first();
+  await mark.hover();
+  const popup = reader.getByRole("dialog", { name: "高亮笔记" }),
+    input = popup.locator("textarea");
+  await expect(popup).toBeVisible();
+  await expect(input).toHaveCSS("border-top-width", "0px");
+  await expect(
+    popup.locator('[role="status"],.annotation-actions'),
+  ).toHaveCount(0);
+  await expect
+    .poll(async () => (await popup.boundingBox())!.height)
+    .toBeLessThan(65);
+  const initial = (await popup.boundingBox())!;
+  const editor = (await input.boundingBox())!;
+  await page.mouse.move(editor.x + 30, editor.y + 10, { steps: 12 });
+  await expect(popup).toBeVisible();
+  await input.click();
+  await input.fill("中".repeat(30));
+  await expect
+    .poll(async () => (await popup.boundingBox())!.width)
+    .toBeGreaterThan(initial.width + 100);
+  const medium = (await popup.boundingBox())!;
+  expect(medium.height).toBeLessThan(65);
+  await input.fill("中".repeat(100));
+  await expect
+    .poll(async () => (await popup.boundingBox())!.height)
+    .toBeGreaterThan(medium.height + 10);
+  const wide = (await popup.boundingBox())!;
+  expect(wide.width).toBeLessThan(475);
+  await input.fill("中".repeat(30) + "\n短行");
+  await expect
+    .poll(async () => (await popup.boundingBox())!.width)
+    .toBeCloseTo(medium.width, 0);
+  await input.fill("第一行");
+  await input.press("Shift+Enter");
+  await input.pressSequentially("第二行");
+  await expect(input).toHaveValue("第一行\n第二行");
+  await input.press("Control+Enter");
+  await input.pressSequentially("第三行");
+  await expect(input).toHaveValue("第一行\n第二行\n第三行");
+  await input.press("Enter");
+  await expect(popup).not.toBeVisible();
+  await expect(reader.locator(".reading-highlight").first()).toBeFocused();
+  await reader.locator(".reading-highlight").first().hover();
+  await expect(popup).toBeVisible();
+  await page.screenshot({ path: "test-results/annotation-compact-note.png" });
+  const exit = await reader.locator(".reader-header").boundingBox();
+  await page.mouse.move(exit!.x + 30, exit!.y + 10);
+  expect(await popup.isVisible()).toBe(false);
+});
+
+test("merging several highlights preserves multiline notes in order and supports quoted ranges across inline HTML", async ({
+  page,
+  request,
+  context,
+}) => {
+  const { detail, workspaceId, paperId } = await setup(page, request, context);
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
+  const reader = page.getByRole("dialog", { name: "论文原文阅读" });
+  for (const [phrase, note] of [
+    ["Attention Routing", "笔记1段落1\n段落2"],
+    ["relevant features", "笔记2段落1"],
+    ["learned attention weights", "笔记3段落1"],
+  ]) {
+    await selectText(page, phrase);
+    await page.keyboard.press("Control+b");
+    const mark = reader
+      .locator(".reading-highlight")
+      .filter({ hasText: phrase })
+      .first();
+    await mark.hover();
+    const popup = reader.getByRole("dialog", { name: "高亮笔记" });
+    await popup.locator("textarea").fill(note);
+    await popup.getByRole("button", { name: "关闭高亮笔记" }).click();
+  }
+  const full =
+    "Attention Routing combines relevant features using learned attention weights.";
+  await selectText(page, full);
+  await page.keyboard.press("Control+b");
+  await expect(reader.locator(".reading-highlight")).toHaveCount(1);
+  const doc = await (
+    await request.get(
+      `/api/workspaces/${workspaceId}/papers/${paperId}/document`,
+    )
+  ).json();
+  expect(doc.annotations[0].note).toBe(
+    "笔记1段落1\n段落2\n笔记2段落1\n笔记3段落1",
+  );
+  expect(doc.annotations[0].quote).toBe(full);
+  await page.reload();
+  await page.getByRole("button", { name: /^论文库/ }).click();
+  await page
+    .getByRole("button", { name: /^Controlled Reader Paper/ })
+    .first()
+    .click();
+  await page
+    .getByRole("dialog", { name: "节点详情" })
+    .getByRole("button", { name: "打开HTML", exact: true })
+    .click();
+  await reader.locator(".reading-highlight").hover();
+  await expect(
+    reader.getByRole("dialog", { name: "高亮笔记" }).locator("textarea"),
+  ).toHaveValue(doc.annotations[0].note);
+  await reader.getByRole("button", { name: "关闭高亮笔记" }).click();
+  const start = doc.document.blocks.find((b: { text: string }) =>
+    b.text.startsWith("Attention Routing combines"),
+  );
+  const end = doc.document.blocks.find((b: { text: string }) =>
+    b.text.startsWith("The normalization step"),
+  );
+  await reader.evaluate(
+    (element, { start, end }) => {
+      const first = element.querySelector(
+          `[data-block-id="${start}"] .reading-block-html`,
+        )!,
+        last = element.querySelector(
+          `[data-block-id="${end}"] .reading-block-html`,
+        )!;
+      const range = document.createRange();
+      range.setStart(first, 0);
+      range.setEnd(last, last.childNodes.length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      last.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    },
+    { start: start.id, end: end.id },
+  );
+  await page.keyboard.press("Control+b");
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await request.get(
+              `/api/workspaces/${workspaceId}/papers/${paperId}/document`,
+            )
+          ).json()
+        ).annotations.length,
+    )
+    .toBe(2);
+  const second = reader
+    .locator(`[data-block-id="${end.id}"] .reading-highlight`)
+    .first();
+  await second.hover();
+  await expect(
+    reader.getByRole("dialog", { name: "高亮笔记" }).locator("textarea"),
+  ).toHaveValue(doc.annotations[0].note);
+  await second.click();
+  await reader
+    .getByRole("toolbar", { name: "标注操作" })
+    .getByRole("button", { name: "取消标注并删除笔记" })
+    .click();
   await expect(reader.locator(".reading-highlight")).toHaveCount(0);
 });
 
-test("the resizable reading sidebar shares library notes, selects the latest attached note, and keeps immersive editing inside the sidebar", async ({
+test("the resizable reading sidebar shares library notes and keeps editing modes inside the sidebar", async ({
   page,
   request,
   context,
@@ -460,7 +686,7 @@ test("the resizable reading sidebar shares library notes, selects the latest att
   await create("较早关联笔记", [paperId]);
   const newest = await create("最新关联笔记", [paperId]);
   await create("未关联的草稿", []);
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await reader.getByRole("button", { name: "笔记", exact: true }).click();
   await expect(reader.getByLabel("笔记标题", { exact: true })).toHaveValue(
@@ -487,21 +713,15 @@ test("the resizable reading sidebar shares library notes, selects the latest att
   await page.mouse.up();
   const after = (await reader.locator(".reader-content").boundingBox())!;
   expect(after.width).toBeLessThan(before.width - 100);
-  await reader.getByRole("button", { name: "沉浸编辑", exact: true }).click();
-  const immersive = reader.getByRole("dialog", { name: "沉浸编辑" });
-  await expect(immersive).toBeVisible();
-  const noteRect = (await immersive.boundingBox())!,
+  await expect(reader.getByRole("button", { name: "沉浸编辑" })).toHaveCount(0);
+  const noteRect = (await reader
+      .locator(".reader-note-panel .md-editor")
+      .boundingBox())!,
     contentRect = (await reader.locator(".reader-content").boundingBox())!;
   expect(noteRect.x).toBeGreaterThanOrEqual(contentRect.x + contentRect.width);
-  expect(
-    await page.locator("#root").evaluate((el) => (el as HTMLElement).inert),
-  ).toBe(false);
-  await immersive
-    .getByLabel("笔记正文", { exact: true })
-    .fill("沉浸中修改的正文");
-  await immersive
-    .getByRole("button", { name: "退出沉浸编辑", exact: true })
-    .click();
+  await reader.getByRole("button", { name: "预览", exact: true }).click();
+  await reader.getByRole("button", { name: "编辑", exact: true }).click();
+  await reader.getByLabel("笔记正文", { exact: true }).fill("侧栏中修改的正文");
   await expect(reader.getByLabel("阅读笔记范围", { exact: true })).toHaveCount(
     0,
   );
@@ -525,7 +745,7 @@ test("the resizable reading sidebar shares library notes, selects the latest att
     .click();
   await page.getByRole("button", { name: /^笔记库/ }).click();
   await expect(
-    page.getByRole("button", { name: /最新关联笔记/ }),
+    page.getByRole("button", { name: "最新关联笔记", exact: true }),
   ).toBeVisible();
 });
 test("reader Enter sends immediately with a floating model-progress box, protects new drafts and keeps failed user messages", async ({
@@ -559,7 +779,7 @@ test("reader Enter sends immediately with a floating model-progress box, protect
       },
     }),
   );
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await reader.getByRole("button", { name: "对话", exact: true }).click();
   const input = reader.getByLabel("原文阅读问题", { exact: true });
@@ -614,7 +834,7 @@ test("an empty paper-note sidebar shows only create and creates an attached libr
   context,
 }) => {
   const { detail } = await setup(page, request, context);
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await reader.getByRole("button", { name: "笔记", exact: true }).click();
   await expect(reader.locator(".reader-note-panel select")).toHaveCount(0);
@@ -729,7 +949,7 @@ test("long full translation continues after reader exit, page changes and reload
     context,
     "2401.00002",
   );
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await reader.getByRole("button", { name: "翻译全文", exact: true }).click();
   await expect(
@@ -786,7 +1006,7 @@ test("long full translation continues after reader exit, page changes and reload
   expect(data.translation.state).toBe("complete");
   await page.getByRole("button", { name: /^论文库/ }).click();
   await page.getByRole("button", { name: paper.title, exact: true }).click();
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   await expect(
     reader.getByRole("button", { name: "译文", exact: true }),
   ).toBeVisible();
@@ -815,7 +1035,7 @@ test("full translation supports dual adjustable panes and interleaving, isolates
   context,
 }) => {
   const { detail, workspaceId, paperId } = await setup(page, request, context);
-  await detail.getByRole("button", { name: "阅读 HTML", exact: true }).click();
+  await detail.getByRole("button", { name: "打开HTML", exact: true }).click();
   const reader = page.getByRole("dialog", { name: "论文原文阅读" });
   await reader.getByRole("button", { name: "翻译全文", exact: true }).click();
   await expect(
@@ -856,9 +1076,9 @@ test("full translation supports dual adjustable panes and interleaving, isolates
   await expect(
     reader.getByRole("button", { name: "引用选文到论文对话", exact: true }),
   ).toBeDisabled();
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
+  await reader.getByRole("button", { name: "标注选段", exact: true }).click();
   await selectText(page, "learned attention weights");
-  await reader.getByRole("button", { name: "切换高亮", exact: true }).click();
+  await reader.getByRole("button", { name: "标注选段", exact: true }).click();
   await expect
     .poll(async () => {
       const current = await (

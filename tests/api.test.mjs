@@ -7,6 +7,7 @@ import { createApp } from "../server/app.mjs";
 import { arxivId, scopedContext } from "../server/services.mjs";
 import { createStore } from "../server/store.mjs";
 import { textPdf } from "./pdf-fixture.mjs";
+import { mergePaper } from "../server/research.mjs";
 
 let server, store, base;
 const dir = mkdtempSync(join(tmpdir(), "anistudy-test-"));
@@ -57,6 +58,265 @@ async function request(path, body, method) {
   });
   return { status: r.status, data: await r.json() };
 }
+
+test("manual paper connections are shared, survive model writes and paper deduplication, and reject invalid or foreign endpoints atomically", async () => {
+  const w = store.create("Paper relations", "");
+  w.papers = [
+    { id: "p", title: "Base", year: 2020, inLibrary: true },
+    { id: "q", title: "Later", year: 2024, inLibrary: true },
+  ];
+  store.put(w);
+  const path = `/workspaces/${w.id}/papers/p/connections/q`;
+  assert.equal(
+    (await request(path, { direction: "incoming", relation: "Extends" }, "PUT"))
+      .status,
+    200,
+  );
+  let saved = store.get(w.id);
+  assert.ok(
+    saved.paperEdges.some(
+      (e) => e.source === "q" && e.target === "p" && e.relation === "Extends",
+    ),
+  );
+  saved.paperEdges = [{ id: "ai", source: "p", target: "q", relation: "Uses" }];
+  store.put(saved);
+  assert.equal(store.get(w.id).paperEdges[0].relation, "Extends");
+  const before = store.get(w.id);
+  assert.equal(
+    (await request(path, { direction: "incoming", relation: "Invalid" }, "PUT"))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(
+        `/workspaces/${w.id}/papers/p/connections/p`,
+        { direction: "outgoing", relation: "Uses" },
+        "PUT",
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(
+        `/workspaces/${w.id}/papers/p/connections/foreign`,
+        { direction: "outgoing", relation: "Uses" },
+        "PUT",
+      )
+    ).status,
+    404,
+  );
+  assert.deepEqual(store.get(w.id), before);
+  await request(path, { direction: "incoming", relation: null }, "PUT");
+  saved = store.get(w.id);
+  saved.paperEdges = [{ id: "ai", source: "p", target: "q", relation: "Uses" }];
+  store.put(saved);
+  assert.equal(store.get(w.id).paperEdges.length, 0);
+  await request(
+    path,
+    { direction: "outgoing", relation: "Improves upon" },
+    "PUT",
+  );
+  saved = store.get(w.id);
+  const duplicate = { ...saved.papers[1], id: "old-q" };
+  saved.papers.push(duplicate);
+  saved.manualPaperConnections[0].target = "old-q";
+  mergePaper(saved, saved.papers[1], duplicate);
+  store.put(saved);
+  assert.ok(
+    store
+      .get(w.id)
+      .paperEdges.some(
+        (e) =>
+          e.source === "p" &&
+          e.target === "q" &&
+          e.relation === "Improves upon",
+      ),
+  );
+  await request(`/workspaces/${w.id}/papers/q`, undefined, "DELETE");
+  assert.equal(store.get(w.id).paperEdges.length, 0);
+  assert.equal(store.get(w.id).manualPaperConnections.length, 0);
+});
+
+test("manual paper years and node tags/reasons persist through later model writes and invalid edits leave all fields unchanged", async () => {
+  const w = store.create("Editable information", "");
+  w.papers = [
+    {
+      id: "p",
+      title: "Year evidence",
+      year: 2024,
+      yearSource: "arxiv",
+      inLibrary: true,
+    },
+  ];
+  w.nodes = [
+    {
+      id: "n",
+      name: "Node",
+      category: "General",
+      directions: ["General"],
+      direction: "General",
+      importance: "normal",
+      importanceSource: "ai",
+      paperIds: ["p"],
+    },
+  ];
+  store.put(w);
+  assert.equal(
+    (await request(`/workspaces/${w.id}/papers/p`, { year: 1986 }, "PATCH"))
+      .status,
+    200,
+  );
+  assert.equal(
+    (
+      await request(
+        `/workspaces/${w.id}/nodes/n`,
+        {
+          category: "自定分类",
+          directions: ["自定方向"],
+          year: 1985,
+          importanceReason: "手动判断。",
+        },
+        "PATCH",
+      )
+    ).status,
+    200,
+  );
+  let saved = store.get(w.id);
+  assert.equal(saved.nodes[0].importanceSource, "manual");
+  assert.equal(saved.nodes[0].importance, "normal");
+  const before = store.get(w.id);
+  assert.equal(
+    (
+      await request(
+        `/workspaces/${w.id}/papers/p`,
+        { year: 9999, title: "Should not change" },
+        "PATCH",
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(
+        `/workspaces/${w.id}/nodes/n`,
+        { category: "<invalid>", description: "Should not change" },
+        "PATCH",
+      )
+    ).status,
+    400,
+  );
+  assert.deepEqual(store.get(w.id), before);
+  Object.assign(saved.papers[0], { year: 2026, yearSource: "arxiv" });
+  Object.assign(saved.nodes[0], {
+    category: "General",
+    directions: ["General"],
+    year: 2026,
+  });
+  store.put(saved);
+  saved = store.get(w.id);
+  assert.equal(saved.papers[0].year, 1986);
+  assert.equal(saved.papers[0].yearSource, "manual");
+  assert.equal(saved.nodes[0].year, 1985);
+  assert.equal(saved.nodes[0].category, "自定分类");
+  assert.deepEqual(saved.nodes[0].directions, ["自定方向"]);
+  await request(`/workspaces/${w.id}/papers/p`, { year: null }, "PATCH");
+  assert.equal(store.get(w.id).papers[0].year, null);
+});
+
+test("manual nodes save bilingual information and both kinds of relations atomically, reject duplicates and foreign objects", async () => {
+  const w = store.create("Manual graph", "");
+  w.nodes = [
+    {
+      id: "base",
+      name: "Base method",
+      paperIds: [],
+      directions: ["General"],
+      category: "General",
+    },
+  ];
+  w.papers = [{ id: "p", title: "Evidence paper", inLibrary: true }];
+  store.put(w);
+  const data = {
+    name: "New method",
+    englishName: "New method",
+    chineseName: "新方法",
+    year: 1984,
+    category: "自定义方法",
+    directions: ["新的研究方向"],
+    importance: "minor",
+    importanceReason: "局部实现细节。",
+    status: "learned",
+    description: "**描述**",
+    significance: "技术意义",
+    hiddenInGraph: true,
+    connections: [{ otherId: "base", direction: "incoming", relation: "Uses" }],
+    paperRelations: [
+      {
+        paperId: "p",
+        relation: "Uses",
+        summary: { role: "在本文组合信息。", implementation: "通过权重实现。" },
+      },
+    ],
+  };
+  const created = await request(`/workspaces/${w.id}/nodes`, data);
+  assert.equal(created.status, 201);
+  const node = created.data.workspace.nodes.find(
+    (n) => n.id === created.data.nodeId,
+  );
+  assert.equal(node.chineseName, "新方法");
+  assert.equal(node.year, 1984);
+  assert.equal(node.importanceSource, "manual");
+  assert.equal(node.status, "learned");
+  assert.equal(node.evidence, "supported");
+  assert.equal(node.hiddenInGraph, true);
+  assert.deepEqual(node.paperIds, ["p"]);
+  assert.equal(node.paperRelations[0].source, "manual");
+  assert.ok(
+    created.data.workspace.edges.some(
+      (e) =>
+        e.source === "base" && e.target === node.id && e.relation === "Uses",
+    ),
+  );
+  assert.ok(
+    created.data.workspace.taxonomy.directions.some(
+      (d) => d.name === "新的研究方向",
+    ),
+  );
+  const before = store.get(w.id);
+  assert.equal((await request(`/workspaces/${w.id}/nodes`, data)).status, 409);
+  assert.equal(
+    (
+      await request(`/workspaces/${w.id}/nodes`, {
+        ...data,
+        name: "Foreign",
+        englishName: "Foreign",
+        chineseName: "其他",
+        connections: [
+          { otherId: "foreign", direction: "outgoing", relation: "Uses" },
+        ],
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await request(`/workspaces/${w.id}/nodes`, {
+        ...data,
+        name: "Invalid",
+        englishName: "Invalid",
+        chineseName: "无效",
+        year: 9999,
+      })
+    ).status,
+    400,
+  );
+  assert.deepEqual(store.get(w.id), before);
+  const reloaded = createStore(dir, false);
+  assert.equal(reloaded.get(w.id).nodes.at(-1).englishName, "New method");
+  reloaded.db.close();
+});
 
 test("importance reassessment backs up the workspace, persists reasons, and leaves data intact on incomplete responses", async () => {
   const w = store.create("Importance review", "");

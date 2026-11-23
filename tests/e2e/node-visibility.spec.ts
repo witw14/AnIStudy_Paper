@@ -98,10 +98,14 @@ test("hidden flags and display modes persist independently for technology and pa
       modes.getByRole("button", { name: "全部节点", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await page.locator(`.graph-node[data-node-id="${paper.id}"]`).click();
-    await detail
-      .getByRole("checkbox", { name: "隐藏节点", exact: true })
-      .check();
-    await detail.getByRole("button", { name: "关闭详情" }).click();
+    await expect(
+      detail.getByRole("checkbox", { name: "隐藏节点", exact: true }),
+    ).toHaveCount(0);
+    await request.patch(`/api/workspaces/${id}/papers/${paper.id}`, {
+      data: { hiddenInGraph: true },
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "论文图谱", exact: true }).click();
     await expect
       .poll(graphIds)
       .toEqual(original.papers.map((p: { id: string }) => p.id).sort());
@@ -132,7 +136,7 @@ test("hidden flags and display modes persist independently for technology and pa
     await page.locator(`.graph-node[data-node-id="${paper.id}"]`).click();
     await expect(
       detail.getByRole("checkbox", { name: "隐藏节点", exact: true }),
-    ).toBeChecked();
+    ).toHaveCount(0);
     await detail.getByRole("button", { name: "关闭详情" }).click();
     await page.getByRole("button", { name: "技术图谱", exact: true }).click();
     await expect(

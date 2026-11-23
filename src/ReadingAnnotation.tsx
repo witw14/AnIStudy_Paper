@@ -7,12 +7,16 @@ export function ReadingAnnotationCard({
   onSaved,
   register,
   visible = true,
+  onSize,
+  onFinish,
 }: {
   annotation: ReadingAnnotation;
   base: string;
   onSaved: (a: ReadingAnnotation) => void;
   register: (id: string, flush?: () => Promise<boolean>) => void;
   visible?: boolean;
+  onSize: (size: { width: number; height: number }) => void;
+  onFinish: () => void;
 }) {
   const key = `anistudy.annotation-draft.${base}.${annotation.id}`;
   const [value, setValue] = useState(
@@ -21,17 +25,47 @@ export function ReadingAnnotationCard({
   const draft = useRef(value),
     record = useRef(annotation),
     pending = useRef<Promise<boolean> | null>(null);
-  const [status, setStatus] = useState(
-    value === annotation.note ? "已自动保存" : "待保存草稿",
-  );
   const [error, setError] = useState("");
   const active = useRef(true);
   const input = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     if (!visible || !input.current) return;
-    input.current.style.height = "auto";
-    input.current.style.height = `${Math.min(input.current.scrollHeight + 2, window.innerHeight * 0.45)}px`;
-  }, [value, visible]);
+    const style = getComputedStyle(input.current),
+      canvas = document.createElement("canvas"),
+      context = canvas.getContext("2d")!;
+    context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const unit = context.measureText("汉").width || 12;
+    const longest = Math.max(
+      0,
+      ...value.split("\n").map((line) => context.measureText(line).width),
+    );
+    const width = Math.min(
+      window.innerWidth - 52,
+      Math.max(unit * 20, Math.min(unit * 35, longest + unit)),
+    );
+    const mirror = document.createElement("div");
+    Object.assign(mirror.style, {
+      position: "fixed",
+      visibility: "hidden",
+      font: style.font,
+      lineHeight: "20px",
+      whiteSpace: "pre-wrap",
+      overflowWrap: "anywhere",
+      width: `${width}px`,
+    });
+    mirror.textContent = (value || " ") + "\u200b";
+    document.body.append(mirror);
+    const height = Math.max(
+      40,
+      Math.min(mirror.scrollHeight, window.innerHeight * 0.45),
+    );
+    mirror.remove();
+    input.current.style.height = `${height}px`;
+    onSize({
+      width: width + 40,
+      height: input.current.closest("article")!.offsetHeight + 18,
+    });
+  }, [value, visible, error]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -47,7 +81,6 @@ export function ReadingAnnotationCard({
     }
     if (draft.current === record.current.note) return true;
     const note = draft.current;
-    setStatus("保存中…");
     const task = (async () => {
       try {
         const a = await api<ReadingAnnotation>(
@@ -59,13 +92,11 @@ export function ReadingAnnotationCard({
         onSaved(a);
         if (draft.current === note) localStorage.removeItem(key);
         if (active.current) {
-          setStatus("已自动保存");
           setError("");
         }
         return true;
       } catch (e) {
         if (active.current) {
-          setStatus("保存失败，草稿已保留");
           setError((e as Error).message);
         }
         return false;
@@ -101,15 +132,32 @@ export function ReadingAnnotationCard({
         placeholder="添加标注备注，自动保存…"
         maxLength={20000}
         onBlur={() => void flush()}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+          if (e.shiftKey || e.ctrlKey) {
+            if (e.ctrlKey) {
+              e.preventDefault();
+              const el = e.currentTarget,
+                start = el.selectionStart,
+                end = el.selectionEnd;
+              const next = value.slice(0, start) + "\n" + value.slice(end);
+              draft.current = next;
+              setValue(next);
+              requestAnimationFrame(() =>
+                el.setSelectionRange(start + 1, start + 1),
+              );
+            }
+            return;
+          }
+          e.preventDefault();
+          e.currentTarget.blur();
+          onFinish();
+        }}
         onChange={(e) => {
           draft.current = e.target.value;
           setValue(e.target.value);
-          setStatus("待保存…");
         }}
       />
-      <div className="annotation-actions">
-        <small role="status">{status}</small>
-      </div>
       {error && (
         <div role="alert">
           <small>{error}</small>
@@ -127,7 +175,6 @@ export function ReadingAnnotationCard({
                 onSaved(a);
                 localStorage.removeItem(key);
                 setError("");
-                setStatus("已载入最新标注");
               }
             }}
           >

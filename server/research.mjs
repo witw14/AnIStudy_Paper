@@ -165,6 +165,18 @@ function rewritePaper(w, from, to) {
   w.paperEdges = w.paperEdges
     .map((e) => ({ ...e, source: map(e.source), target: map(e.target) }))
     .filter((e) => e.source !== e.target);
+  if (w.manualPaperConnections)
+    w.manualPaperConnections = w.manualPaperConnections
+      .map((e) => ({ ...e, source: map(e.source), target: map(e.target) }))
+      .filter((e) => e.source !== e.target)
+      .filter(
+        (e, i, a) =>
+          a.findLastIndex(
+            (v) =>
+              (v.source === e.source && v.target === e.target) ||
+              (v.source === e.target && v.target === e.source),
+          ) === i,
+      );
   w.routes.forEach((r) =>
     r.stages.forEach((s) => (s.paperIds = unique(s.paperIds.map(map)))),
   );
@@ -459,7 +471,9 @@ export function applyOrganization(w, paper, output, settings = {}) {
         paperIds: unique([...n.paperIds, paper.id]),
         paperRelations: [
           ...(n.paperRelations || []).filter((r) => r.paperId !== paper.id),
-          { paperId: paper.id, relation: proposed.contribution, summary },
+          n.paperRelations?.find(
+            (r) => r.paperId === paper.id && r.source === "manual",
+          ) || { paperId: paper.id, relation: proposed.contribution, summary },
         ],
         aliases: unique([
           ...previousNames,

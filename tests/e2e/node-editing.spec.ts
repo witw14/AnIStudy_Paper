@@ -31,12 +31,12 @@ test("node information, bidirectional relations, note placement and detail scrol
     await page.getByRole("button", { name: "技术图谱", exact: true }).click();
     await page.locator(`.graph-node[data-node-id="${a.id}"]`).click();
     const detail = page.getByRole("dialog", { name: "节点详情" });
-    await detail.getByRole("button", { name: "更改信息", exact: true }).click();
+    await detail.getByRole("button", { name: "编辑标签", exact: true }).click();
     await detail.getByRole("spinbutton", { name: "节点年份" }).fill("1996");
-    await detail.getByRole("button", { name: "保存年份" }).click();
+    await detail.getByRole("button", { name: "保存标签" }).click();
     await expect(detail.locator(".detail-tags")).toContainText("1996");
     await expect(
-      detail.locator(".attached-notes + .evidence-note"),
+      detail.locator(".attached-notes + .editable-text"),
     ).toBeVisible();
     await detail.getByRole("button", { name: "编辑相连技术" }).click();
     await detail
@@ -69,7 +69,7 @@ test("node information, bidirectional relations, note placement and detail scrol
     await page.getByRole("button", { name: /^论文库/ }).click();
     await page.getByText(w.papers[0].title, { exact: true }).first().click();
     await expect(
-      detail.locator(".editable-text + .attached-notes + .evidence-note"),
+      detail.locator(".attached-notes + .paper-document-status"),
     ).toBeVisible();
   } finally {
     await request.delete(`/api/workspaces/${id}/notes/${created.note.id}`);
@@ -137,54 +137,24 @@ test("unconnected technology search paginates at twenty and leaves connected pee
   await expect(page.locator(".connected-list .connection-row")).toHaveCount(1);
 });
 
-test("immersive notes fill the current viewport without resizing and keep edits when leaving", async ({
+test("web notes retain Markdown modes and attachments while immersive editing is hidden", async ({
   page,
 }) => {
-  await page.goto("/?quick-notes=1");
+  await page.goto("/");
+  await page.getByRole("button", { name: "笔记库", exact: true }).click();
   await page.getByRole("button", { name: "新建笔记", exact: true }).click();
-  await page.getByRole("textbox", { name: "笔记正文" }).fill("## 沉浸草稿");
-  const size = await page.evaluate(() => [
-    innerWidth,
-    innerHeight,
-    outerWidth,
-    outerHeight,
-  ]);
-  await page.getByRole("button", { name: "沉浸编辑", exact: true }).click();
-  const immersive = page.getByRole("dialog", { name: "沉浸编辑" });
-  await expect(immersive).toBeVisible();
-  expect(
-    await page.evaluate(() => document.getElementById("root")!.inert),
-  ).toBe(true);
-  expect(
-    await page.evaluate(() => [
-      innerWidth,
-      innerHeight,
-      outerWidth,
-      outerHeight,
-    ]),
-  ).toEqual(size);
-  await immersive
+  await page
     .getByRole("textbox", { name: "笔记正文" })
-    .fill("## 沉浸编辑后\n\n**保留修改**");
-  await expect(immersive.locator(".md-preview strong")).toHaveText("保留修改");
-  await immersive.getByRole("textbox", { name: "笔记正文" }).press("Tab");
-  await expect(
-    immersive.getByRole("textbox", { name: "笔记正文" }),
-  ).toBeFocused();
-  await immersive.getByRole("textbox", { name: "笔记正文" }).press("Control+z");
-  await immersive.getByRole("button", { name: "保存笔记" }).click();
-  await expect(immersive.getByRole("status")).toContainText("已保存");
-  await page.screenshot({ path: "test-results/immersive-notes.png" });
-  await immersive.getByRole("button", { name: "退出沉浸编辑" }).click();
+    .fill("## 理解记录\n\n**保留修改**");
+  await expect(page.locator(".md-preview strong")).toHaveText("保留修改");
+  await expect(page.getByRole("button", { name: "沉浸编辑" })).toHaveCount(0);
+  await expect(page.getByText("关联论文与技术节点（0）")).toBeVisible();
+  await page.getByRole("button", { name: "预览", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "笔记正文" })).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "笔记正文" })).toHaveValue(
-    /沉浸编辑后/,
+    /保留修改/,
   );
-  expect(
-    await page.evaluate(() => document.getElementById("root")!.inert),
-  ).toBe(false);
-  await page.getByRole("button", { name: "沉浸编辑", exact: true }).click();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "沉浸编辑" })).toHaveCount(0);
 });
 
 test("pin button uses a dark active and light inactive state", async ({
@@ -202,6 +172,7 @@ test("pin button uses a dark active and light inactive state", async ({
     route.fulfill({ json: { ok: true } }),
   );
   await page.goto("/?quick-notes=1");
+  await page.getByRole("button", { name: "新建笔记", exact: true }).click();
   const pin = page.getByRole("button", { name: "置顶", exact: true });
   await expect(pin).toHaveAttribute("aria-pressed", "false");
   const light = await pin.evaluate(

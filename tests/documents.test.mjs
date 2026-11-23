@@ -75,7 +75,7 @@ test("PDF conversion preserves actual page positions and versions; older annotat
   assert.match(first.warning, /PDF/);
   assert.equal(paper.annotations[0].documentId, first.id);
 });
-test("technology matches use bilingual aliases and word boundaries, while explicit associations can be removed", () => {
+test("term mentions never create technology links; explicit useful associations can be removed", () => {
   const doc = htmlDocument(htmlPaper, "https://arxiv.org/html/2401.12345v2");
   const p = { id: "paper", document: doc };
   const w = {
@@ -89,8 +89,21 @@ test("technology matches use bilingual aliases and word boundaries, while explic
       { id: "cat", name: "CAT", paperIds: ["paper"] },
     ],
   };
+  assert.deepEqual(paragraphLinks(w, p), []);
+  const block = doc.blocks.find((b) => b.text === methodText);
+  p.paragraphLinks = [
+    {
+      nodeId: "attn",
+      documentId: doc.id,
+      blockId: block.id,
+      source: "ai",
+      label: "正式讲解",
+      quote: methodText,
+    },
+  ];
   const links = paragraphLinks(w, p);
-  assert.ok(links.some((l) => l.nodeId === "attn"));
+  assert.equal(links.length, 1);
+  assert.equal(links[0].label, "正式讲解");
   assert.ok(!links.some((l) => l.nodeId === "cat"));
   p.blockedParagraphLinks = [links[0]];
   assert.ok(

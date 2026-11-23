@@ -14,19 +14,27 @@ export function createStore(dir, seed = true) {
     for (const value of [...w.papers, ...w.nodes]) {
       if (value.userEdits) Object.assign(value, value.userEdits);
     }
-    const ids = new Set(w.nodes.map((n) => n.id));
-    w.manualConnections = (w.manualConnections || []).filter(
-      (e) => ids.has(e.source) && ids.has(e.target),
-    );
-    for (const manual of w.manualConnections) {
-      w.edges = w.edges.filter(
-        (e) =>
-          !(
-            (e.source === manual.source && e.target === manual.target) ||
-            (e.source === manual.target && e.target === manual.source)
-          ),
+    for (const [collection, manualKey, edgeKey] of [
+      ["nodes", "manualConnections", "edges"],
+      ["papers", "manualPaperConnections", "paperEdges"],
+    ]) {
+      const ids = new Set(w[collection].map((n) => n.id));
+      if (w[manualKey] === undefined && manualKey === "manualPaperConnections")
+        continue;
+      w[manualKey] = (w[manualKey] || []).filter(
+        (e) => ids.has(e.source) && ids.has(e.target),
       );
-      if (manual.relation) w.edges.push({ ...manual, provenance: "manual" });
+      for (const manual of w[manualKey]) {
+        w[edgeKey] = w[edgeKey].filter(
+          (e) =>
+            !(
+              (e.source === manual.source && e.target === manual.target) ||
+              (e.source === manual.target && e.target === manual.source)
+            ),
+        );
+        if (manual.relation)
+          w[edgeKey].push({ ...manual, provenance: "manual" });
+      }
     }
     db.prepare("INSERT OR REPLACE INTO workspaces VALUES (?, ?)").run(
       w.id,

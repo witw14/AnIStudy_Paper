@@ -640,7 +640,10 @@
   box-shadow: 0 8px 28px #293d3e35;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 22px 10px 8px;
+  padding: 8px 10px;
+  transition:
+    width 140ms ease,
+    height 140ms ease;
 }
 .reader-annotation-popup[hidden] {
   display: none;
@@ -656,21 +659,52 @@
   padding: 0;
   margin: 0;
 }
-.reader-annotation-popup textarea {
-  min-height: 65px;
+.reader-annotation-popup .reader-annotation textarea {
+  min-height: 40px;
   max-height: 45vh;
   resize: none;
-  margin: 0 0 6px;
+  margin: 0;
+  padding: 0 18px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  line-height: 20px;
+  overflow-wrap: anywhere;
   font-size: 12px;
   cursor:
     url("/cursors/note-text.svg") 12 12,
     text;
+}
+.reader-annotation-tools {
+  position: fixed;
+  z-index: 181;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 3px 12px #293d3e22;
+}
+.reader-annotation-tools button {
+  padding: 6px;
+  color: var(--green);
+}
+.reader-annotation-tools button:hover {
+  background: var(--soft);
 }
 .reader-explanation {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+}
+.reader-explanation .chat-reasoning {
+  padding: 5px 0;
+  gap: 6px 10px;
+  flex-shrink: 0;
 }
 .reader-chat-history {
   flex: 1;

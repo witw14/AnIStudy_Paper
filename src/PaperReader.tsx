@@ -17,10 +17,12 @@ import {
   RefreshCw,
   Search,
   X,
+  Eraser,
 } from "lucide-react";
 import { api } from "./api";
 import { Markdown } from "./Markdown";
 import { ChatMessageMeta } from "./ChatMessageMeta";
+import { ChatReasoning } from "./ChatReasoning";
 import { ReadingAnnotationCard } from "./ReadingAnnotation";
 import { ReaderNotes } from "./ReaderNotes";
 import { SearchFrames } from "./SearchFrames";
@@ -29,7 +31,12 @@ import {
   type ChatRequest,
   type LocalChatMessage,
 } from "./conversation";
-import { annotatedHtml, searchOccurrences, textRange } from "./readingText";
+import {
+  annotatedHtml,
+  annotationsWithGroupNotes,
+  searchOccurrences,
+  textRange,
+} from "./readingText";
 import { PaperAcquisition, paperIsAcquiring } from "./AcquisitionSettings";
 import type {
   Paper,
@@ -66,6 +73,8 @@ export function PaperReader({
   location,
   settings,
   backgroundTasks,
+  onChatPreferences,
+  savingChatPreferences,
   onClose,
   onWorkspace,
   onNode,
@@ -83,6 +92,8 @@ export function PaperReader({
   location: ReaderLocation;
   settings: Settings;
   backgroundTasks: AITask[];
+  onChatPreferences: (data: Partial<Settings>) => void;
+  savingChatPreferences?: boolean;
   onClose: () => void;
   onWorkspace: (w: Workspace) => void;
   onNode: (id: string) => void;
@@ -161,9 +172,16 @@ export function PaperReader({
     top: number;
   } | null>(null);
   const [visitedAnnotations, setVisitedAnnotations] = useState<string[]>([]);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
+  const [annotationTools, setAnnotationTools] = useState<{
+    id: string;
+    documentId: string;
+    left: number;
+    top: number;
+  } | null>(null);
+  const [popupSizes, setPopupSizes] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
+  const annotationAnchor = useRef<HTMLElement | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null),
     dialogRef = useRef<HTMLDivElement>(null);
@@ -193,8 +211,25 @@ export function PaperReader({
     void loadDocument();
     setVisitedAnnotations([]);
     setHover(null);
+    setAnnotationTools(null);
     setSearchIndex(-1);
   }, [base, docId]);
+  useEffect(() => {
+    const outside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.closest(
+          ".reader-annotation-popup,.reader-annotation-tools,.reading-highlight",
+        )
+      )
+        return;
+      setAnnotationTools(null);
+      setHover(null);
+      void flushAll();
+    };
+    document.addEventListener("mousedown", outside, true);
+    return () => document.removeEventListener("mousedown", outside, true);
+  }, []);
   useEffect(() => {
     if (!data && paper.hasDocument && !loading) void loadDocument();
   }, [paper.hasDocument, paper.documentId]);
@@ -213,7 +248,6 @@ export function PaperReader({
     dialogRef.current?.focus();
     return () => {
       alive.current = false;
-      clearTimeout(hoverTimer.current);
       old?.focus();
     };
   }, []);
@@ -264,7 +298,7 @@ export function PaperReader({
       const width = popup.offsetWidth,
         height = popup.offsetHeight;
       popup.style.left = `${Math.max(bounds.left + 8, Math.min(hover.left, bounds.right - width - 8))}px`;
-      popup.style.top = `${Math.max(bounds.top + 8, hover.top - height - 8)}px`;
+      popup.style.top = `${Math.max(bounds.top + 8, hover.top - height + 1)}px`;
     };
     const observer = new ResizeObserver(position);
     observer.observe(popup);
@@ -273,13 +307,17 @@ export function PaperReader({
   }, [hover]);
   function showAnnotation(mark: HTMLElement) {
     if (window.getSelection()?.toString()) return;
-    clearTimeout(hoverTimer.current);
-    const id = mark.dataset.annotationIds?.split(" ").at(-1);
-    if (!id) return;
+    const a = annotationFor(mark);
+    if (!a) return;
+    const group = annotationGroup(a),
+      id = (group.find((v) => v.note.trim()) || group[0]).id;
+    annotationAnchor.current = mark;
     const rect = mark.getBoundingClientRect();
     setVisitedAnnotations((ids) => (ids.includes(id) ? ids : [...ids, id]));
     setHover((current) =>
-      current?.id === id
+      current?.id === id &&
+      current.left === rect.left &&
+      current.top === rect.top
         ? current
         : {
             id,
@@ -288,15 +326,90 @@ export function PaperReader({
           },
     );
   }
-  function hideAnnotationLater() {
-    clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => {
-      if (!popupRef.current?.contains(document.activeElement)) setHover(null);
-    }, 250);
+  function hideAnnotation(relatedTarget?: EventTarget | null) {
+    if (popupRef.current?.contains(document.activeElement)) return;
+    if (
+      relatedTarget instanceof Node &&
+      popupRef.current?.contains(relatedTarget)
+    )
+      return;
+    if (
+      relatedTarget instanceof HTMLElement &&
+      relatedTarget.closest(".reading-highlight")
+    )
+      return;
+    setHover(null);
+  }
+  function annotationFor(mark: HTMLElement) {
+    const id = mark.dataset.annotationIds?.split(" ").at(-1);
+    return [
+      ...(data?.annotations || []),
+      ...(data?.translationAnnotations || []),
+    ].find((a) => a.id === id);
+  }
+  function annotationGroup(a: ReadingAnnotation) {
+    return [
+      ...(data?.annotations || []),
+      ...(data?.translationAnnotations || []),
+    ].filter(
+      (v) =>
+        v.documentId === a.documentId &&
+        (v.id === a.id || (a.groupId && v.groupId === a.groupId)),
+    );
+  }
+  function clickAnnotation(mark: HTMLElement) {
+    const a = annotationFor(mark);
+    if (!a) return;
+    const rect = mark.getBoundingClientRect();
+    setAnnotationTools({
+      id: a.id,
+      documentId: a.documentId,
+      left: Math.min(rect.left, window.innerWidth - 85),
+      top: Math.min(rect.bottom + 4, window.innerHeight - 45),
+    });
+    showAnnotation(mark);
+  }
+  function finishAnnotation() {
+    const id =
+      annotationAnchor.current?.dataset.annotationIds?.split(" ").at(-1) ||
+      hover?.id;
+    setHover(null);
+    setAnnotationTools(null);
+    void flushAll().then(() =>
+      requestAnimationFrame(() => {
+        const mark = [
+          ...(dialogRef.current?.querySelectorAll<HTMLElement>(
+            ".reading-highlight",
+          ) || []),
+        ].find((m) => m.dataset.annotationIds?.split(" ").includes(id || ""));
+        if (mark) {
+          mark.tabIndex = -1;
+          mark.focus({ preventScroll: true });
+        }
+      }),
+    );
   }
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (document.querySelector(".modal-backdrop")) return;
+      if (
+        e.ctrlKey &&
+        !e.altKey &&
+        !e.metaKey &&
+        e.key.toLowerCase() === "b" &&
+        format === "html" &&
+        !(e.target as HTMLElement)?.closest(
+          "input,textarea,select,[contenteditable=true]",
+        )
+      ) {
+        const parts = captureSelection();
+        if (parts.length) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void highlight(parts);
+        }
+        return;
+      }
       if (e.key === "Escape") {
         const immersive = dialogRef.current?.querySelector<HTMLElement>(
           ".md-local-immersive",
@@ -311,11 +424,14 @@ export function PaperReader({
             ?.click();
           return;
         }
-        if (hover) {
+        if (hover || annotationTools) {
           e.preventDefault();
           e.stopImmediatePropagation();
           void flushAll().then((ok) => {
-            if (ok) setHover(null);
+            if (ok) {
+              setHover(null);
+              setAnnotationTools(null);
+            }
           });
           return;
         }
@@ -390,11 +506,12 @@ export function PaperReader({
     const selection = window.getSelection();
     if (!selection?.rangeCount || selection.isCollapsed) {
       setSelected([]);
-      return;
+      return [];
     }
     const range = selection.getRangeAt(0),
       out: SelectedText[] = [];
     setHover(null);
+    setAnnotationTools(null);
     for (const article of dialogRef.current?.querySelectorAll<HTMLElement>(
       ".reader-content .reading-block",
     ) || []) {
@@ -428,15 +545,16 @@ export function PaperReader({
     if (new Set(out.map((s) => s.documentId)).size > 1) {
       setSelected([]);
       setError("请只选择原文或译文中的一个版本，二者标注独立保存。");
-      return;
+      return [];
     }
     if (out.length > 14 || out.map((s) => s.quote).join("").length > 10000) {
       setError("请分次选择，每次不超过 14 个段落或 10000 个字符。");
       setSelected([]);
-      return;
+      return [];
     }
     setSelected(out);
     setError("");
+    return out;
   }
   async function action(label: string, fn: () => Promise<void>) {
     if (actionRef.current) return;
@@ -452,103 +570,150 @@ export function PaperReader({
       if (alive.current) setBusy("");
     }
   }
-  async function highlight() {
-    if (!data || !selected.length) return;
+  function discardDrafts(ids: string[]) {
+    for (const id of ids)
+      localStorage.removeItem(`anistudy.annotation-draft.${base}.${id}`);
+  }
+  async function highlight(parts = selected) {
+    if (!data || !parts.length) return;
+    const documentId = parts[0].documentId;
     await action("保存标注…", async () => {
       if (!(await flushAll()))
         throw new Error("标注备注尚未保存，请先重试保存。");
-      // Re-read revisions before removing: another window may have added a note.
       const current = await api<ReadingData>(
         `${base}/document?documentId=${encodeURIComponent(data.document.id)}`,
       );
-      const rows = selectedOriginal
-        ? current.annotations
-        : current.translationAnnotations || [];
-      const intersected = rows.filter((a) =>
-        selected.some(
-          (s) => s.blockId === a.blockId && s.start < a.end && s.end > a.start,
-        ),
+      const rows =
+        documentId === data.document.id
+          ? current.annotations
+          : current.translationAnnotations || [];
+      const result = await api<{
+        annotations: ReadingAnnotation[];
+        removedIds: string[];
+      }>(`${base}/annotations/highlight`, {
+        documentId,
+        color,
+        selections: parts.map(({ blockId, start, end, quote }) => ({
+          blockId,
+          start,
+          end,
+          quote,
+        })),
+        expectedAnnotations: rows.map((a) => ({
+          id: a.id,
+          revision: a.revision,
+        })),
+      });
+      discardDrafts(result.removedIds);
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              [documentId === d.document.id
+                ? "annotations"
+                : "translationAnnotations"]: result.annotations,
+            }
+          : d,
       );
-      const groups = new Set(intersected.map((a) => a.groupId).filter(Boolean));
-      const removals = rows.filter(
-        (a) =>
-          intersected.some((v) => v.id === a.id) ||
-          (a.groupId && groups.has(a.groupId)),
-      );
-      if (removals.length) {
-        if (
-          removals.some((a) => a.note.trim()) &&
-          !confirm("选中的高亮包含笔记。移除高亮会同时删除这些笔记，确定删除？")
-        )
-          return;
-        for (const a of removals) {
-          await api(
-            `${base}/annotations/${a.id}`,
-            { revision: a.revision },
-            "DELETE",
-          );
-          localStorage.removeItem(`anistudy.annotation-draft.${base}.${a.id}`);
-          setData((d) =>
-            d
-              ? {
-                  ...d,
-                  annotations: d.annotations.filter((v) => v.id !== a.id),
-                  translationAnnotations: d.translationAnnotations?.filter(
-                    (v) => v.id !== a.id,
-                  ),
-                }
-              : d,
-          );
-        }
-        setHover(null);
-        setSelected([]);
-        window.getSelection()?.removeAllRanges();
-        return;
-      }
-      const groupId = crypto.randomUUID();
-      for (const s of selected) {
-        const annotation = await api<ReadingAnnotation>(`${base}/annotations`, {
-          ...s,
-          documentId: s.documentId,
-          color,
-          groupId,
-        });
-        setData((current) =>
-          current
-            ? selectedOriginal
-              ? {
-                  ...current,
-                  annotations: [...current.annotations, annotation],
-                }
-              : {
-                  ...current,
-                  translationAnnotations: [
-                    ...(current.translationAnnotations || []),
-                    annotation,
-                  ],
-                }
-            : current,
-        );
-      }
+      setHover(null);
+      setAnnotationTools(null);
       setSelected([]);
       window.getSelection()?.removeAllRanges();
     });
   }
-  function quoteSelection() {
-    if (!data || !selectedOriginal) return;
-    setQuoted({ documentId: data.document.id, parts: [...selected] });
-    setQuestion(`请解释：‘${selected.map((s) => s.quote).join("\n")}’`);
+  async function removeAnnotation() {
+    if (!data || !annotationTools) return;
+    const target = annotationTools;
+    await action("删除标注…", async () => {
+      if (!(await flushAll()))
+        throw new Error("标注备注尚未保存，请先重试保存。");
+      const current = await api<ReadingData>(
+        `${base}/document?documentId=${encodeURIComponent(data.document.id)}`,
+      );
+      const rows =
+        target.documentId === data.document.id
+          ? current.annotations
+          : current.translationAnnotations || [];
+      const a = rows.find((a) => a.id === target.id);
+      if (!a) throw new Error("该标注已改变，请重新打开原文。");
+      const group = rows.filter(
+        (v) => v.id === a.id || (a.groupId && v.groupId === a.groupId),
+      );
+      const result = await api<{ removedIds: string[] }>(
+        `${base}/annotations/groups/${a.id}`,
+        {
+          documentId: a.documentId,
+          expectedAnnotations: group.map((v) => ({
+            id: v.id,
+            revision: v.revision,
+          })),
+        },
+        "DELETE",
+      );
+      discardDrafts(result.removedIds);
+      setData((d) =>
+        d
+          ? {
+              ...d,
+              annotations: d.annotations.filter(
+                (v) => !result.removedIds.includes(v.id),
+              ),
+              translationAnnotations: d.translationAnnotations?.filter(
+                (v) => !result.removedIds.includes(v.id),
+              ),
+            }
+          : d,
+      );
+      setHover(null);
+      setAnnotationTools(null);
+      setSelected([]);
+      window.getSelection()?.removeAllRanges();
+    });
+  }
+  function referenceParts(parts: SelectedText[]) {
+    if (!data || !parts.length || parts[0].documentId !== data.document.id)
+      return;
+    setQuoted({ documentId: data.document.id, parts });
+    setQuestion(`请解释：‘${parts.map((s) => s.quote).join("\n")}’`);
     setTab("explanation");
     openAside();
     setSelected([]);
+    setHover(null);
+    setAnnotationTools(null);
     window.getSelection()?.removeAllRanges();
     requestAnimationFrame(() => questionRef.current?.focus());
+  }
+  function quoteSelection() {
+    referenceParts([...selected]);
+  }
+  function quoteAnnotation() {
+    const a = [
+      ...(data?.annotations || []),
+      ...(data?.translationAnnotations || []),
+    ].find((a) => a.id === annotationTools?.id);
+    if (!a) return;
+    const parts = annotationGroup(a).sort(
+      (a, b) =>
+        (data?.document.blocks.findIndex((v) => v.id === a.blockId) ?? 0) -
+          (data?.document.blocks.findIndex((v) => v.id === b.blockId) ?? 0) ||
+        a.start - b.start,
+    );
+    referenceParts(
+      parts.map(({ documentId, blockId, start, end, quote }) => ({
+        documentId,
+        blockId,
+        start,
+        end,
+        quote,
+      })),
+    );
   }
   async function explain() {
     if (
       !question.trim() ||
       chatSending ||
       actionRef.current ||
+      savingChatPreferences ||
       !settings.hasKey
     )
       return;
@@ -591,6 +756,14 @@ export function PaperReader({
     () => searchOccurrences(data?.document.blocks || [], search),
     [data?.document, search],
   );
+  const originalAnnotations = useMemo(
+    () => annotationsWithGroupNotes(data?.annotations || []),
+    [data?.annotations],
+  );
+  const translatedAnnotations = useMemo(
+    () => annotationsWithGroupNotes(data?.translationAnnotations || []),
+    [data?.translationAnnotations],
+  );
   const blockHtml = useMemo(
     () =>
       new Map(
@@ -598,11 +771,11 @@ export function PaperReader({
           b.id,
           annotatedHtml(
             b.html,
-            data?.annotations.filter((a) => a.blockId === b.id) || [],
+            originalAnnotations.filter((a) => a.blockId === b.id),
           ),
         ]),
       ),
-    [data?.document, data?.annotations],
+    [data?.document, originalAnnotations],
   );
   const translatedHtml = useMemo(
     () =>
@@ -611,13 +784,11 @@ export function PaperReader({
           b.id,
           annotatedHtml(
             b.html,
-            (data?.translationAnnotations || []).filter(
-              (a) => a.blockId === b.id,
-            ),
+            translatedAnnotations.filter((a) => a.blockId === b.id),
           ),
         ]),
       ),
-    [translationDoc, data?.translationAnnotations],
+    [translationDoc, translatedAnnotations],
   );
   const searchRevision = useMemo(
     () => ({ html: blockHtml, mode: readingMode }),
@@ -803,8 +974,8 @@ export function PaperReader({
                 ))}
               </div>
               <button
-                title="切换高亮：再次选中高亮的一部分即可移除"
-                aria-label="切换高亮"
+                title="标注选段（Ctrl+B）"
+                aria-label="标注选段"
                 disabled={!!busy || !selected.length}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => void highlight()}
@@ -1054,9 +1225,9 @@ export function PaperReader({
                   ".reading-highlight",
                 );
                 if (mark) showAnnotation(mark);
-                else hideAnnotationLater();
+                else hideAnnotation();
               }}
-              onMouseLeave={hideAnnotationLater}
+              onMouseLeave={(e) => hideAnnotation(e.relatedTarget)}
               onScroll={() => {
                 if (!popupRef.current?.contains(document.activeElement))
                   setHover(null);
@@ -1069,7 +1240,7 @@ export function PaperReader({
                   ".reading-highlight",
                 );
                 if (mark && !window.getSelection()?.toString()) {
-                  showAnnotation(mark);
+                  clickAnnotation(mark);
                   e.preventDefault();
                   return;
                 }
@@ -1215,9 +1386,18 @@ export function PaperReader({
                       ".reading-highlight",
                     );
                     if (mark) showAnnotation(mark);
-                    else hideAnnotationLater();
+                    else hideAnnotation();
                   }}
-                  onMouseLeave={hideAnnotationLater}
+                  onClick={(e) => {
+                    const mark = (e.target as HTMLElement).closest<HTMLElement>(
+                      ".reading-highlight",
+                    );
+                    if (mark && !window.getSelection()?.toString()) {
+                      clickAnnotation(mark);
+                      e.preventDefault();
+                    }
+                  }}
+                  onMouseLeave={(e) => hideAnnotation(e.relatedTarget)}
                   onScroll={() => {
                     if (!popupRef.current?.contains(document.activeElement))
                       setHover(null);
@@ -1308,9 +1488,6 @@ export function PaperReader({
               </div>
               {tab === "technology" && (
                 <div className="reader-technology-list">
-                  <p className="muted">
-                    标签定位原文，右箭头打开技术详情。自动匹配表示术语出现，可手动关联或移除。
-                  </p>
                   {data?.links.map((l) => (
                     <div
                       className="reader-tech-tag"
@@ -1319,12 +1496,7 @@ export function PaperReader({
                       <button title={l.section} onClick={() => jump(l.blockId)}>
                         {l.nodeName}
                         <small>
-                          {l.source === "manual"
-                            ? "手动关联"
-                            : l.source === "ai"
-                              ? "整理关联"
-                              : "术语匹配"}{" "}
-                          · {l.section}
+                          {l.label || "手动关联"} · {l.section}
                         </small>
                       </button>
                       <button
@@ -1370,6 +1542,11 @@ export function PaperReader({
               )}
               {tab === "explanation" && (
                 <div className="reader-explanation">
+                  <ChatReasoning
+                    settings={settings}
+                    disabled={!!busy || chatSending || savingChatPreferences}
+                    onChange={onChatPreferences}
+                  />
                   <div
                     className="reader-chat-history"
                     ref={historyRef}
@@ -1487,6 +1664,7 @@ export function PaperReader({
                     disabled={
                       !!busy ||
                       chatSending ||
+                      savingChatPreferences ||
                       !settings.hasKey ||
                       !question.trim()
                     }
@@ -1528,6 +1706,37 @@ export function PaperReader({
             </span>
           </div>
         )}
+        {annotationTools && (
+          <div
+            className="reader-annotation-tools"
+            role="toolbar"
+            aria-label="标注操作"
+            style={{ left: annotationTools.left, top: annotationTools.top }}
+          >
+            <button
+              aria-label="取消标注并删除笔记"
+              title="取消标注并删除笔记"
+              disabled={!!busy}
+              onClick={() => void removeAnnotation()}
+            >
+              <Eraser size={15} />
+            </button>
+            <button
+              aria-label="引用标注至对话"
+              title={
+                annotationTools.documentId === data?.document.id
+                  ? "引用至对话"
+                  : "引用只支持原文"
+              }
+              disabled={
+                !!busy || annotationTools.documentId !== data?.document.id
+              }
+              onClick={quoteAnnotation}
+            >
+              <MessageSquare size={15} />
+            </button>
+          </div>
+        )}
         {[...(data?.annotations || []), ...(data?.translationAnnotations || [])]
           .filter((a) => visitedAnnotations.includes(a.id))
           .map((a) => (
@@ -1541,13 +1750,10 @@ export function PaperReader({
               style={{
                 left: hover?.left || 0,
                 top: Math.max(8, (hover?.top || 150) - 140),
-                width: Math.min(
-                  460,
-                  Math.max(280, Math.sqrt(a.note.length) * 20 + 240),
-                ),
+                width: popupSizes[a.id]?.width || 278,
+                height: popupSizes[a.id]?.height || 58,
               }}
-              onMouseEnter={() => clearTimeout(hoverTimer.current)}
-              onMouseLeave={hideAnnotationLater}
+              onMouseLeave={(e) => hideAnnotation(e.relatedTarget)}
             >
               <button
                 className="annotation-popup-close"
@@ -1563,6 +1769,15 @@ export function PaperReader({
                 annotation={a}
                 base={base}
                 visible={hover?.id === a.id}
+                onFinish={finishAnnotation}
+                onSize={(size) =>
+                  setPopupSizes((current) =>
+                    current[a.id]?.width === size.width &&
+                    current[a.id]?.height === size.height
+                      ? current
+                      : { ...current, [a.id]: size },
+                  )
+                }
                 register={(id, flush) => {
                   if (flush) flushers.current.set(id, flush);
                   else flushers.current.delete(id);

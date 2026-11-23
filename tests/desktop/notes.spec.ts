@@ -101,11 +101,12 @@ test("Windows helper registers, rebinds and releases global shortcuts; quick win
         },
       );
     });
-    await expect(
-      page.getByText("AnIStudy · 快速笔记", { exact: true }),
-    ).toBeVisible();
+    await expect(page.locator(".quick-notes > header")).toHaveCount(0);
     await page.getByRole("button", { name: "新建笔记", exact: true }).click();
+    await page.getByRole("button", { name: "笔记操作：未命名笔记" }).click();
+    await page.getByRole("menuitem", { name: "重命名" }).click();
     await page.getByRole("textbox", { name: "笔记标题" }).fill("桌面窗口笔记");
+    await page.getByRole("textbox", { name: "笔记标题" }).press("Enter");
     await page
       .getByRole("textbox", { name: "笔记正文" })
       .fill("## 原生窗口中的 Markdown\n\n**保存内容**");
@@ -136,9 +137,13 @@ test("Windows helper registers, rebinds and releases global shortcuts; quick win
         .press("a");
       await assertVisibleTextCursor();
     }
-    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await page.getByRole("textbox", { name: "笔记正文" }).press("Control+s");
     await expect(page.locator(".note-save-state")).toHaveText("已保存");
-    await page.getByRole("button", { name: "沉浸编辑", exact: true }).click();
+    await expect(page.getByRole("button", { name: "沉浸编辑" })).toHaveCount(0);
+    await page.getByRole("button", { name: "收起笔记侧栏" }).click();
+    await expect(
+      page.getByRole("complementary", { name: "笔记侧栏" }),
+    ).toBeHidden();
     await assertVisibleTextCursor();
     const cursorImage = await app.evaluate(
       () => (globalThis as any).noteCursorEvents.at(-1).png,
@@ -147,9 +152,7 @@ test("Windows helper registers, rebinds and releases global shortcuts; quick win
       body: Buffer.from(cursorImage, "base64"),
       contentType: "image/png",
     });
-    await page
-      .getByRole("button", { name: "退出沉浸编辑", exact: true })
-      .click();
+    await page.getByRole("button", { name: "展开笔记侧栏" }).click();
     await send({
       id: 3,
       method: "configure",
@@ -181,7 +184,9 @@ test("Windows helper registers, rebinds and releases global shortcuts; quick win
       ),
     ).toBe("undefined");
     await page.screenshot({ path: join(profile, "quick-notes.png") });
-    await page.getByRole("button", { name: "隐藏笔记窗口" }).click();
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].close(),
+    );
     await expect
       .poll(() =>
         app.evaluate(({ BrowserWindow }) =>
@@ -197,9 +202,9 @@ test("Windows helper registers, rebinds and releases global shortcuts; quick win
         ),
       )
       .toBe(true);
-    await expect(page.getByRole("textbox", { name: "笔记标题" })).toHaveValue(
-      "桌面窗口笔记",
-    );
+    await expect(
+      page.locator('.quick-note-card[data-selected="true"] > strong'),
+    ).toHaveText("桌面窗口笔记");
     await assertVisibleTextCursor();
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].close(),

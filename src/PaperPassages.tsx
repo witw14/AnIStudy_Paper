@@ -38,6 +38,7 @@ export function PaperPassages({
           <span>
             <strong>{l.paperTitle}</strong>
             <small>
+              {l.label ? `${l.label} · ` : ""}
               {l.section}
               {l.page ? ` · PDF 第 ${l.page} 页` : ""}
             </small>

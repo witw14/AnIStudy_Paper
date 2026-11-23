@@ -1,4 +1,15 @@
 import type { ReadingAnnotation, ReadingBlock } from "./types";
+export function annotationsWithGroupNotes(rows: ReadingAnnotation[]) {
+  const notes = new Map<string, string>();
+  for (const a of rows)
+    if (a.groupId && a.note.trim())
+      notes.set(`${a.documentId}:${a.groupId}`, a.note);
+  return rows.map((a) =>
+    a.groupId
+      ? { ...a, note: notes.get(`${a.documentId}:${a.groupId}`) || a.note }
+      : a,
+  );
+}
 
 export function textRange(element: HTMLElement, start: number, end: number) {
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);

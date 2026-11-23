@@ -2,6 +2,7 @@ import { extractMetadata } from "./research.mjs";
 import { taxonomyLabel, normalizeTaxonomy } from "./taxonomy.mjs";
 import { normalizeImportance } from "./importance.mjs";
 import { normalizePaperSummary } from "./paper-summary.mjs";
+import { normalizeSourcePassages } from "./passage-links.mjs";
 
 const relations = [
   "Introduced by",
@@ -161,6 +162,7 @@ export function normalizeOrganization(raw) {
       englishName: text(n.englishName, 300),
       chineseName: text(n.chineseName, 300),
       existingNodeId: text(n.existingNodeId, 100),
+      sourcePassages: normalizeSourcePassages(n),
       sourceParagraphIds: (Array.isArray(n.sourceParagraphIds)
         ? n.sourceParagraphIds
         : []

@@ -430,6 +430,99 @@ test("route-wide acquisition reuses cached documents and preserves candidate adm
   assert.equal(pdfCalls, beforePdf);
   assert.equal(store.get(w.id).papers[0].id, savedPaper);
 });
+test("range highlighting and group deletion are atomic, revision-aware, and scoped to the selected paper and document", async () => {
+  const w = store.create("Merged annotation test", ""),
+    doc = structuredClone(savedDocument),
+    block = doc.blocks.find((b) => b.text === methodText);
+  w.papers = [
+    { id: "p", title: "Annotation paper", document: doc, inLibrary: true },
+  ];
+  store.put(w);
+  const path = `/workspaces/${w.id}/papers/p`;
+  const anchor = (start, end) => ({
+    documentId: doc.id,
+    blockId: block.id,
+    start,
+    end,
+    quote: block.text.slice(start, end),
+  });
+  const first = (
+    await request(`${path}/annotations`, {
+      ...anchor(0, 9),
+      note: "Note A\nContinuation",
+    })
+  ).data;
+  const second = (
+    await request(`${path}/annotations`, { ...anchor(20, 28), note: "Note B" })
+  ).data;
+  const revisions = [first, second].map((a) => ({
+    id: a.id,
+    revision: a.revision,
+  }));
+  const body = {
+    documentId: doc.id,
+    color: "green",
+    selections: [
+      { blockId: block.id, start: 0, end: 40, quote: block.text.slice(0, 40) },
+    ],
+    expectedAnnotations: revisions,
+  };
+  const before = store.get(w.id);
+  assert.equal(
+    (
+      await request(`${path}/annotations/highlight`, {
+        ...body,
+        documentId: "foreign",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(`${path}/annotations/highlight`, {
+        ...body,
+        selections: [{ ...body.selections[0], quote: "wrong" }],
+      })
+    ).status,
+    409,
+  );
+  assert.deepEqual(store.get(w.id), before);
+  const merged = await request(`${path}/annotations/highlight`, body);
+  assert.equal(merged.status, 200);
+  assert.equal(merged.data.annotations.length, 1);
+  assert.equal(merged.data.annotations[0].note, "Note A\nContinuation\nNote B");
+  assert.equal(
+    (await request(`${path}/annotations/highlight`, body)).status,
+    409,
+  );
+  const a = merged.data.annotations[0],
+    deleteBody = {
+      documentId: doc.id,
+      expectedAnnotations: [{ id: a.id, revision: a.revision }],
+    };
+  await request(
+    `${path}/annotations/${a.id}`,
+    { revision: a.revision, note: "Concurrent edit" },
+    "PATCH",
+  );
+  assert.equal(
+    (await request(`${path}/annotations/groups/${a.id}`, deleteBody, "DELETE"))
+      .status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(
+        `${path}/annotations/groups/${a.id}`,
+        { ...deleteBody, expectedAnnotations: [{ id: a.id, revision: 2 }] },
+        "DELETE",
+      )
+    ).status,
+    200,
+  );
+  assert.equal(store.get(w.id).papers[0].annotations.length, 0);
+});
+
 test("organization associates concepts with validated source paragraphs even when the generated title does not occur verbatim", async () => {
   const original = modelHandler;
   const block = savedDocument.blocks.find((b) => b.text === methodText);
@@ -453,7 +546,10 @@ test("organization associates concepts with validated source paragraphs even whe
           necessary: true,
           relevance: "core",
           contribution: "Uses",
-          sourceParagraphIds: [block.id, "foreign-block"],
+          sourcePassages: [
+            { blockId: block.id, label: "正式讲解", quote: methodText },
+            { blockId: "foreign-block", label: "计算公式", quote: "invented" },
+          ],
           paperSummary: {
             role: "本文用该概念组合特征。",
             implementation: "本文采用学习得到的注意力权重。",
@@ -478,6 +574,11 @@ test("organization associates concepts with validated source paragraphs even whe
       await request(`/workspaces/${savedWorkspace}/nodes/${node.id}/passages`)
     ).data;
     assert.ok(links.some((l) => l.blockId === block.id && l.source === "ai"));
+    assert.equal(links.find((l) => l.blockId === block.id).label, "正式讲解");
+    assert.equal(
+      links.find((l) => l.blockId === block.id).snippet,
+      methodText.slice(0, 180),
+    );
     assert.ok(!links.some((l) => l.blockId === "foreign-block"));
   } finally {
     modelHandler = original;

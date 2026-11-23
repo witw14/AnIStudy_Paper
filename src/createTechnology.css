@@ -1,0 +1,54 @@
+.modal.create-technology-modal {
+  width: min(850px, 94vw);
+}
+.create-technology fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.technology-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 16px;
+}
+.technology-fields > label {
+  min-width: 0;
+}
+.create-technology details {
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.create-technology summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.create-technology .connection-row > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.create-technology .connection-row select {
+  width: 150px;
+  flex-shrink: 0;
+  margin: 0;
+}
+.new-node-paper {
+  border-bottom: 1px solid var(--border);
+  padding: 4px 0;
+}
+.graph-add-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+@media (max-width: 600px) {
+  .technology-fields {
+    grid-template-columns: 1fr;
+  }
+}

@@ -291,6 +291,8 @@ export type ReadingAnnotation = {
   updatedAt: string;
 };
 export type ParagraphLink = {
+  label?: string;
+  quote?: string;
   nodeId: string;
   nodeName: string;
   blockId: string;

@@ -43,13 +43,15 @@ import {
 } from "lucide-react";
 import { api } from "./api";
 import { Graph } from "./Graph";
+import { CreateTechnology } from "./CreateTechnology";
 import { NodeCatalog } from "./NodeCatalog";
 import { Markdown } from "./Markdown";
-import { NotesLibrary, NoteLinks } from "./Notes";
-import { EditableText } from "./EditableText";
+import { NotesLibrary } from "./Notes";
+import { TechnologyDetails, PaperDetails } from "./NodeDetails";
 import { NoteSettings } from "./NoteSettings";
 import { ChatEvidenceSettings } from "./ChatEvidenceSettings";
 import { ChatMessageMeta } from "./ChatMessageMeta";
+import { ChatReasoning } from "./ChatReasoning";
 import {
   AcquisitionSettings,
   PaperAcquisition,
@@ -61,10 +63,8 @@ import {
   type ChatRequest,
   type LocalChatMessage,
 } from "./conversation";
-import { PaperPassages } from "./PaperPassages";
 import { isProgressOperation, observeOperation } from "./operationProgress";
 import { earliestLinkedPaper } from "./technologyChat";
-import { ConnectedTechnologies } from "./ConnectedTechnologies";
 import {
   sortLibraryPapers,
   librarySortOptions,
@@ -78,8 +78,6 @@ import {
   useBackgroundTasks,
 } from "./TaskActivity";
 import {
-  workspaceTaxonomy,
-  categoryColor,
   statusNames,
   type Paper,
   type Note,
@@ -211,13 +209,7 @@ export default function App() {
   const [spaces, setSpaces] = useState<WorkspaceMeta[]>([]);
   const [spacesLoaded, setSpacesLoaded] = useState(false);
   const [w, setW] = useState<Workspace | null>(null);
-  const categories = Object.fromEntries(
-    w ? workspaceTaxonomy(w, "categories").map((e) => [e.id, e.name]) : [],
-  );
   const [settings, setSettings] = useState<Settings>({});
-  const [editingImportance, setEditingImportance] = useState<string | null>(
-    null,
-  );
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme || "forest";
     document.documentElement.dataset.reduceMotion = String(
@@ -1175,6 +1167,7 @@ export default function App() {
                       onExitFocus={() => setGraphFocus(null)}
                       w={w}
                       paperMode={page === "papers"}
+                      onAddNode={() => setModal("new-node")}
                       onSelect={select}
                     />
                     <div className="info-note">
@@ -1739,61 +1732,11 @@ export default function App() {
                     <PanelRightClose size={17} />
                   </button>
                 </div>
-                <div className="chat-reasoning">
-                  <label>
-                    深度思考
-                    <select
-                      aria-label="深度思考"
-                      value={settings.deepThinking || "auto"}
-                      disabled={
-                        !!busy ||
-                        savingChatPreferences ||
-                        !settings.reasoningCapabilities?.supported
-                      }
-                      onChange={(e) =>
-                        void saveChatPreferences({
-                          deepThinking: e.target
-                            .value as Settings["deepThinking"],
-                        })
-                      }
-                    >
-                      <option value="auto">模型默认</option>
-                      <option value="enabled">开启</option>
-                      <option value="disabled">关闭</option>
-                    </select>
-                  </label>
-                  <label>
-                    思考强度
-                    <select
-                      aria-label="思考强度"
-                      value={settings.reasoningEffort || "auto"}
-                      disabled={
-                        !!busy ||
-                        savingChatPreferences ||
-                        !settings.reasoningCapabilities?.supported ||
-                        settings.deepThinking === "disabled"
-                      }
-                      onChange={(e) =>
-                        void saveChatPreferences({
-                          reasoningEffort: e.target
-                            .value as Settings["reasoningEffort"],
-                        })
-                      }
-                    >
-                      <option value="auto">模型默认</option>
-                      {settings.reasoningCapabilities?.efforts.map((value) => (
-                        <option value={value} key={value}>
-                          {(
-                            { low: "低", high: "高", max: "最高" } as Record<
-                              string,
-                              string
-                            >
-                          )[value] || value}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+                <ChatReasoning
+                  settings={settings}
+                  disabled={!!busy || savingChatPreferences}
+                  onChange={(data) => void saveChatPreferences(data)}
+                />
                 {mode === "paper" && (
                   <select
                     className="chat-paper"
@@ -2021,602 +1964,107 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="detail-top">
-              <span className="eyebrow">
-                {selectedNode ? "TECHNOLOGY INSIGHT" : "PAPER INSIGHT"}
-              </span>
               <button aria-label="关闭详情" onClick={() => setSelection(null)}>
                 <X size={19} />
               </button>
             </div>
-            {selectedNode && (
-              <>
-                <span
-                  className="detail-icon"
-                  style={{
-                    color: categoryColor(selectedNode.category),
-                    background: categoryColor(selectedNode.category) + "18",
-                  }}
-                >
-                  <Network size={30} />
-                </span>
-                <EditableText
-                  key={`node-title-${selectedNode.id}`}
-                  label="技术标题"
-                  fields={[
-                    {
-                      name: "englishName",
-                      label: "英文标题",
-                      value: selectedNode.englishName || selectedNode.name,
-                    },
-                    {
-                      name: "chineseName",
-                      label: "中文标题",
-                      value: selectedNode.chineseName || selectedNode.name,
-                    },
-                  ]}
-                  onSave={(data) =>
-                    mutate(`/nodes/${selectedNode.id}`, data, "PATCH")
-                  }
-                >
-                  <h2>{selectedNode.name}</h2>
-                </EditableText>
-                {(selectedNode.englishName || selectedNode.chineseName) && (
-                  <p className="node-alternate-title">
-                    {settings.preferEnglishTerms !== false
-                      ? selectedNode.chineseName
-                      : selectedNode.englishName}
-                  </p>
-                )}
-                <div className="detail-tags">
-                  <span className="pill">
-                    {categories[selectedNode.category]}
-                  </span>
-                  <span className="pill">
-                    {{
-                      landmark: "里程碑",
-                      major: "重要",
-                      normal: "普通",
-                      minor: "次要",
-                    }[selectedNode.importance] || selectedNode.importance}
-                  </span>
-                  <span>{selectedNode.year ?? "年份待识别"}</span>
-                </div>
-                <label className="node-hide-option">
-                  <input
-                    aria-label="隐藏节点"
-                    type="checkbox"
-                    checked={!!selectedNode.hiddenInGraph}
-                    disabled={!!busy}
-                    onChange={(e) =>
-                      setNodeHidden("nodes", selectedNode.id, e.target.checked)
-                    }
-                  />
-                  <span>
-                    隐藏节点
-                    <small>
-                      在主要／极简模式中隐藏，全部节点模式仍可查看。
-                    </small>
-                  </span>
-                </label>
-                <div className="importance-editor">
-                  <button
-                    className="secondary"
-                    aria-expanded={editingImportance === selectedNode.id}
-                    disabled={!!busy}
-                    onClick={() =>
-                      setEditingImportance(
-                        editingImportance === selectedNode.id
-                          ? null
-                          : selectedNode.id,
-                      )
-                    }
-                  >
-                    <Pencil size={14} />
-                    更改信息
-                  </button>
-                  {selectedNode.importanceSource === "manual" && (
-                    <small>用户设定</small>
-                  )}
-                  {editingImportance === selectedNode.id && (
-                    <div
-                      className="importance-options"
-                      role="group"
-                      aria-label="选择节点级别"
-                    >
-                      <form
-                        className="node-year-editor"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          const value = String(
-                            new FormData(e.currentTarget).get("year") || "",
-                          ).trim();
-                          void work("保存节点年份", async () => {
-                            await mutate(
-                              `/nodes/${selectedNode.id}`,
-                              { year: value ? Number(value) : null },
-                              "PATCH",
-                            );
-                            setNotice(
-                              value
-                                ? `节点年份已设为 ${value}。`
-                                : "节点年份已设为待识别。",
-                            );
-                          });
-                        }}
-                      >
-                        <label>
-                          节点年份
-                          <input
-                            aria-label="节点年份"
-                            name="year"
-                            type="number"
-                            min={1}
-                            max={new Date().getFullYear() + 1}
-                            step={1}
-                            defaultValue={selectedNode.year ?? ""}
-                            placeholder="未知可留空"
-                          />
-                        </label>
-                        <button className="secondary" disabled={!!busy}>
-                          保存年份
-                        </button>
-                      </form>
-                      {Object.entries(importanceNames).map(([value, label]) => (
-                        <button
-                          key={value}
-                          className="secondary"
-                          aria-pressed={selectedNode.importance === value}
-                          disabled={!!busy}
-                          onClick={() =>
-                            void work("保存节点级别", async () => {
-                              await mutate(
-                                `/nodes/${selectedNode.id}`,
-                                { importance: value },
-                                "PATCH",
-                              );
-                              setEditingImportance(null);
-                              setNotice(`节点级别已设为${label}。`);
-                            })
-                          }
-                        >
-                          {label}
-                        </button>
-                      ))}
-                      {selectedNode.importanceSource === "manual" && (
-                        <button
-                          className="text-link"
-                          disabled={!!busy}
-                          onClick={() =>
-                            void work("更新定级偏好", async () => {
-                              await mutate(
-                                `/nodes/${selectedNode.id}`,
-                                { importanceSource: "ai" },
-                                "PATCH",
-                              );
-                              setEditingImportance(null);
-                            })
-                          }
-                        >
-                          允许 AI 重新定级
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <button
-                  className="primary full-width"
-                  onClick={() => {
-                    if (!w) return;
-                    setGraphFocus({
-                      workspaceId: w.id,
-                      nodeId: selectedNode.id,
-                    });
-                    setPage("technology");
-                    setSelection(null);
-                  }}
-                >
-                  <Focus size={15} />
-                  以此技术为中心
-                </button>
-                <EditableText
-                  key={`node-body-${selectedNode.id}`}
-                  label="技术正文"
-                  markdown
-                  fields={[
-                    {
-                      name: "description",
-                      label: "是什么",
-                      value: selectedNode.description,
-                    },
-                    {
-                      name: "significance",
-                      label: "为什么值得理解",
-                      value: selectedNode.significance,
-                    },
-                  ]}
-                  onSave={(data) =>
-                    mutate(`/nodes/${selectedNode.id}`, data, "PATCH")
-                  }
-                >
-                  <h4>是什么</h4>
-                  <Markdown>{selectedNode.description}</Markdown>
-                  <h4>为什么值得理解</h4>
-                  <Markdown>{selectedNode.significance}</Markdown>
-                </EditableText>
-                {selectedNode.importanceReason && (
-                  <>
-                    <h4>重要性判断</h4>
-                    <p>{selectedNode.importanceReason}</p>
-                  </>
-                )}
-                {w && (
-                  <NoteLinks
-                    w={w}
-                    kind="node"
-                    id={selectedNode.id}
-                    onOpen={openNote}
-                    onCreate={() => createNodeNote(selectedNode)}
-                    disabled={!!busy}
-                  />
-                )}
-                <div className="evidence-note">
-                  {selectedNode.evidence === "missing"
-                    ? "○ 当前论文库尚缺少直接支持资料"
-                    : "● 当前论文库中有资料支持"}
-                  <small>{selectedNode.provenance}</small>
-                </div>
-                {w && (
-                  <PaperPassages
-                    key={selectedNode.id}
-                    workspaceId={w.id}
-                    nodeId={selectedNode.id}
-                    onOpen={(link) =>
-                      openReader({
-                        paperId: link.paperId!,
-                        documentId: link.documentId,
-                        blockId: link.blockId,
-                        format: "html",
-                      })
-                    }
-                  />
-                )}
-                <h4>关键论文</h4>
-                {selectedNode.paperIds.map((id) => {
-                  const p = w?.papers.find((p) => p.id === id);
-                  return (
-                    p && (
-                      <button
-                        className="related-paper"
-                        key={id}
-                        onClick={() => select("paper", id)}
-                      >
-                        <FileText size={17} />
-                        <span>
-                          {p.title}
-                          <small>
-                            {p.year ?? "年份待识别"} ·{" "}
-                            {p.inLibrary ? "已在论文库" : "待加入论文库"}
-                          </small>
-                        </span>
-                        <ChevronRight size={15} />
-                      </button>
-                    )
-                  );
-                })}
-                {w && (
-                  <ConnectedTechnologies
-                    key={selectedNode.id}
-                    w={w}
-                    node={selectedNode}
-                    onSelect={(id) => select("node", id)}
-                    onSave={(id, data) =>
-                      mutate(
-                        `/nodes/${selectedNode.id}/connections/${id}`,
-                        data,
-                        "PUT",
-                      )
-                    }
-                  />
-                )}
-                <div className="detail-status">
-                  <span>你的学习状态</span>
+            {selectedNode && w && (
+              <TechnologyDetails
+                w={w}
+                node={selectedNode}
+                settings={settings}
+                busy={!!busy}
+                statusControl={
                   <StatusSelect
                     value={selectedNode.status}
                     onChange={(s) =>
                       patch("nodes", selectedNode.id, { status: s })
                     }
                   />
-                </div>
-                <button
-                  className="primary full-width"
-                  onClick={() => quote(selectedNode)}
-                >
-                  <MessageSquare size={16} />
-                  引用并打开对话
-                </button>
-                <button
-                  className="secondary full-width"
-                  onClick={() =>
-                    void work("加入路线", async () => {
-                      await mutate(`/nodes/${selectedNode.id}/route`, {});
-                      setNotice("已加入学习路线");
-                    })
-                  }
-                >
-                  <RouteIcon size={15} />
-                  加入学习路线
-                </button>
-                <button
-                  className="danger-text"
-                  onClick={() => {
-                    if (confirm("删除此技术节点及相关图谱连接？"))
-                      remove("nodes", selectedNode.id);
-                  }}
-                >
-                  <Trash2 size={13} />
-                  删除节点
-                </button>
-              </>
+                }
+                onSave={mutate}
+                onSelect={select}
+                onNote={openNote}
+                onReader={openReader}
+                onCreateNote={() => createNodeNote(selectedNode)}
+                onHide={(value) =>
+                  setNodeHidden("nodes", selectedNode.id, value)
+                }
+                onCenter={() => {
+                  setGraphFocus({ workspaceId: w.id, nodeId: selectedNode.id });
+                  setPage("technology");
+                  setSelection(null);
+                }}
+                onQuote={() => quote(selectedNode)}
+                onDelete={() => {
+                  if (confirm("删除此技术节点及相关图谱连接？"))
+                    remove("nodes", selectedNode.id);
+                }}
+              />
             )}
-            {selectedPaper && (
-              <>
-                <span className="detail-icon">
-                  <FileText size={29} />
-                </span>
-                <EditableText
-                  key={`paper-title-${selectedPaper.id}`}
-                  label="论文标题"
-                  fields={[
-                    {
-                      name: "title",
-                      label: "论文标题",
-                      value: selectedPaper.title,
-                    },
-                  ]}
-                  onSave={(data) =>
-                    mutate(`/papers/${selectedPaper.id}`, data, "PATCH")
-                  }
-                >
-                  <h2 className="paper-detail-title">{selectedPaper.title}</h2>
-                </EditableText>
-                <p className="authors">
-                  {selectedPaper.authors} · {selectedPaper.year ?? "年份待识别"}
-                </p>
-                <label className="node-hide-option">
-                  <input
-                    aria-label="隐藏节点"
-                    type="checkbox"
-                    checked={!!selectedPaper.hiddenInGraph}
-                    disabled={!!busy}
-                    onChange={(e) =>
-                      setNodeHidden(
-                        "papers",
-                        selectedPaper.id,
-                        e.target.checked,
-                      )
-                    }
-                  />
-                  <span>
-                    隐藏节点
-                    <small>
-                      在主要／极简模式中隐藏，全部节点模式仍可查看。
-                    </small>
-                  </span>
-                </label>
-                {paperLink(selectedPaper)}
-                <EditableText
-                  key={`paper-body-${selectedPaper.id}`}
-                  label="论文正文"
-                  markdown
-                  fields={[
-                    {
-                      name: "summary",
-                      label: "阅读导览正文",
-                      value: selectedPaper.summary,
-                    },
-                  ]}
-                  onSave={(data) =>
-                    mutate(`/papers/${selectedPaper.id}`, data, "PATCH")
-                  }
-                >
-                  <h4>阅读导览</h4>
-                  <Markdown>{selectedPaper.summary}</Markdown>
-                </EditableText>
-                {w && (
-                  <NoteLinks
-                    w={w}
-                    kind="paper"
-                    id={selectedPaper.id}
-                    onOpen={openNote}
-                  />
-                )}
-                <div className="evidence-note">
-                  {selectedPaper.hasText
-                    ? "已提取 PDF 文本，可用于论文对话"
-                    : selectedPaper.file
-                      ? "未提取到文本；不支持扫描件 OCR"
-                      : "当前只有摘要资料；上传 PDF 后可讨论全文。"}
-                </div>
-                <div className="detail-status">
-                  <span>你的学习状态</span>
+            {selectedPaper && w && (
+              <PaperDetails
+                w={w}
+                paper={selectedPaper}
+                busy={!!busy}
+                statusControl={
                   <StatusSelect
                     value={selectedPaper.status}
                     onChange={(s) =>
                       patch("papers", selectedPaper.id, { status: s })
                     }
                   />
-                </div>
-                {selectedPaper.verification !== "verified" && (
-                  <form
-                    className="verify-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const d = new FormData(e.currentTarget);
-                      void work("验证论文信息", () =>
-                        mutate("/papers/" + selectedPaper.id + "/verify", {
-                          input: d.get("arxiv"),
-                        }),
-                      );
-                    }}
-                  >
-                    <label>
-                      关联并核验 arXiv 元信息
-                      <input
-                        name="arxiv"
-                        required
-                        placeholder="对应这篇 PDF 的 arXiv ID"
-                      />
-                    </label>
-                    <button className="secondary" disabled={!!busy}>
-                      验证论文
-                    </button>
-                  </form>
-                )}
-                <h4>关键技术</h4>
-                <div className="related-nodes paper-technologies">
-                  {w?.nodes
-                    .filter((n) => n.paperIds.includes(selectedPaper.id))
-                    .map((n) => {
-                      const link =
-                        n.paperRelations?.find(
-                          (r) => r.paperId === selectedPaper.id && r.summary,
-                        ) ||
-                        n.paperRelations?.find(
-                          (r) => r.paperId === selectedPaper.id,
-                        );
-                      const relation = link?.relation || n.contribution;
-                      return (
-                        <button
-                          className="paper-tech-card"
-                          key={n.id}
-                          data-tech-id={n.id}
-                          onClick={() => select("node", n.id)}
-                        >
-                          <span className="paper-tech-heading">
-                            <span
-                              aria-hidden="true"
-                              style={{ color: categoryColor(n.category) }}
-                            >
-                              ●
-                            </span>
-                            <strong>{n.name}</strong>
-                            {relation && <small>{relation}</small>}
-                            <ArrowRight size={13} aria-hidden="true" />
-                          </span>
-                          {link?.summary && (
-                            <span className="paper-tech-summary">
-                              {link.summary.role} {link.summary.implementation}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                </div>
-                <PaperAcquisition paper={selectedPaper} />
-                <div className="paper-reading-actions">
-                  <button
-                    disabled={!selectedPaper.file}
-                    onClick={() =>
-                      openReader({ paperId: selectedPaper.id, format: "pdf" })
-                    }
-                  >
-                    <BookOpen size={15} />
-                    阅读 PDF
-                  </button>
-                  <button
-                    onClick={() =>
-                      openReader({ paperId: selectedPaper.id, format: "html" })
-                    }
-                  >
-                    <FileText size={15} />
-                    阅读 HTML
-                  </button>
-                  {(selectedPaper.arxivId || selectedPaper.file) && (
-                    <button
-                      disabled={paperIsAcquiring(selectedPaper)}
-                      onClick={() =>
-                        void work("获取论文原文", () =>
-                          mutate(`/papers/${selectedPaper.id}/acquire`, {}),
-                        )
-                      }
-                    >
-                      <ArrowDownToLine size={14} />
-                      {selectedPaper.acquisition?.state === "failed"
-                        ? "重试获取原文"
-                        : selectedPaper.hasDocument
-                          ? "更新原文索引"
-                          : "获取原文"}
-                    </button>
-                  )}
-                </div>
-                {!selectedPaper.inLibrary ? (
-                  <button
-                    className="primary full-width"
-                    onClick={() =>
-                      patch("papers", selectedPaper.id, { inLibrary: true })
-                    }
-                  >
-                    <Plus size={15} />
-                    加入论文库
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      className="primary full-width"
-                      onClick={() => {
-                        setMode("paper");
-                        setPaperId(selectedPaper.id);
-                        setChatOpen(true);
-                        setSelection(null);
-                      }}
-                    >
-                      <MessageSquare size={15} />
-                      与论文对话
-                    </button>
-                    <button
-                      className="secondary full-width"
-                      disabled={!!busy || paperIsAcquiring(selectedPaper)}
-                      onClick={() =>
-                        void work("正在整理论文", async () => {
-                          const updated = await mutate(
-                            `/papers/${selectedPaper.id}/organize`,
-                            {},
-                          );
-                          const report = updated?.papers.find(
-                            (p) => p.id === selectedPaper.id,
-                          )?.organizationReport;
-                          setNotice(
-                            report?.quality === "fallback"
-                              ? "已保留原文摘录与基础信息，AI 整理未完成，可稍后重试。"
-                              : report?.quality === "partial"
-                                ? "已保留有效整理结果，部分字段已跳过；详见动态。"
-                                : "整理完成，关键技术与关系已自动更新到图谱。",
-                          );
-                          setSelection(null);
-                          setPage("technology");
-                        })
-                      }
-                    >
-                      <Sparkles size={15} />
-                      整理论文 · 提取技术
-                    </button>
-                  </>
-                )}
-                <button
-                  className="danger-text"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        "删除这篇论文及本地 PDF？相关节点和路线会同步移除引用。",
-                      )
+                }
+                onSave={mutate}
+                onSelect={select}
+                onNote={openNote}
+                onReader={openReader}
+                arxivLink={
+                  selectedPaper.arxivId ? paperLink(selectedPaper) : null
+                }
+                onAdmit={() =>
+                  patch("papers", selectedPaper.id, { inLibrary: true })
+                }
+                onAcquire={() =>
+                  void work("获取论文原文", () =>
+                    mutate(`/papers/${selectedPaper.id}/acquire`, {}),
+                  )
+                }
+                onChat={() => {
+                  setMode("paper");
+                  setPaperId(selectedPaper.id);
+                  setChatOpen(true);
+                  setSelection(null);
+                }}
+                onOrganize={() =>
+                  void work("正在整理论文", async () => {
+                    const updated = await mutate(
+                      `/papers/${selectedPaper.id}/organize`,
+                      {},
+                    );
+                    const report = updated?.papers.find(
+                      (p) => p.id === selectedPaper.id,
+                    )?.organizationReport;
+                    setNotice(
+                      report?.quality === "fallback"
+                        ? "已保留原文摘录与基础信息，AI 整理未完成，可稍后重试。"
+                        : report?.quality === "partial"
+                          ? "已保留有效整理结果，部分字段已跳过；详见动态。"
+                          : "整理完成，关键技术与关系已自动更新到图谱。",
+                    );
+                    setSelection(null);
+                    setPage("technology");
+                  })
+                }
+                onDelete={() => {
+                  if (
+                    confirm(
+                      "删除这篇论文及本地 PDF？相关节点和路线会同步移除引用。",
                     )
-                      remove("papers", selectedPaper.id);
-                  }}
-                >
-                  <Trash2 size={13} />
-                  删除论文
-                </button>
-              </>
+                  )
+                    remove("papers", selectedPaper.id);
+                }}
+              />
             )}
           </aside>
         </div>
@@ -2635,6 +2083,8 @@ export default function App() {
           location={reader}
           settings={settings}
           backgroundTasks={background.tasks}
+          onChatPreferences={(data) => void saveChatPreferences(data)}
+          savingChatPreferences={savingChatPreferences}
           onClose={() => {
             setSelection(reader.returnTo);
             setReader(null);
@@ -2648,6 +2098,24 @@ export default function App() {
           }}
           onSource={openSource}
         />
+      )}
+      {modal === "new-node" && w && (
+        <Modal
+          title="新增技术节点"
+          className="create-technology-modal"
+          onClose={() => setModal("")}
+        >
+          <CreateTechnology
+            w={w}
+            onCreated={({ workspace, nodeId }) => {
+              if (activeId.current === workspace.id) {
+                setW(workspace);
+                select("node", nodeId);
+              }
+              setModal("");
+            }}
+          />
+        </Modal>
       )}
       {modal === "workspace" && (
         <Modal title="创建研究空间" onClose={() => setModal("")}>

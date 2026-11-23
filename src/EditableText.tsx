@@ -8,12 +8,14 @@ export function EditableText({
   markdown = false,
   onSave,
   children,
+  heading,
 }: {
   label: string;
   fields: { name: string; label: string; value: string }[];
   markdown?: boolean;
   onSave: (data: Record<string, string>) => Promise<unknown>;
   children: ReactNode;
+  heading?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -83,6 +85,11 @@ export function EditableText({
         </div>
       ) : (
         <>
+          {heading && (
+            <div className="editable-heading">
+              <h4>{heading}</h4>
+            </div>
+          )}
           {children}
           <button
             className="edit-pencil"

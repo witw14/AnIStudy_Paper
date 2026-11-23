@@ -2,6 +2,7 @@ import { z } from "zod";
 import { uid } from "./seed.mjs";
 import { allDocuments, paragraphLinks } from "./documents.mjs";
 import { readingView } from "./translation.mjs";
+import { mergeHighlight, checkAnnotationRevisions } from "./annotations.mjs";
 
 export function registerReading(app, { store, get, item, publicW, acquirer }) {
   const fail = (m, status = 400) => Object.assign(new Error(m), { status });
@@ -10,6 +11,13 @@ export function registerReading(app, { store, get, item, publicW, acquirer }) {
     blockId: z.string().max(100),
   });
   const color = z.enum(["yellow", "green", "blue", "pink"]);
+  const revisions = z
+    .array(
+      z
+        .object({ id: z.string().max(100), revision: z.number().int().min(1) })
+        .strict(),
+    )
+    .max(3000);
   function locate(w, pid, anchor) {
     const p = item(w, "papers", pid);
     const doc = readingView(p, anchor.documentId);
@@ -97,6 +105,83 @@ export function registerReading(app, { store, get, item, publicW, acquirer }) {
     }
     res.json(publicW(get(w.id)));
   });
+  app.post(
+    "/api/workspaces/:wid/papers/:pid/annotations/highlight",
+    (req, res) => {
+      const w = get(req.params.wid),
+        p = item(w, "papers", req.params.pid);
+      const b = z
+        .object({
+          documentId: z.string().max(100),
+          color,
+          expectedAnnotations: revisions,
+          selections: z
+            .array(
+              z
+                .object({
+                  blockId: z.string().max(100),
+                  start: z.number().int().min(0),
+                  end: z.number().int().min(1),
+                  quote: z.string().min(1).max(10000),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(14),
+        })
+        .strict()
+        .parse(req.body);
+      if (b.selections.reduce((n, s) => n + s.quote.length, 0) > 10000)
+        throw fail("选段合计不能超过 10000 字符。");
+      const doc = readingView(p, b.documentId);
+      if (!doc) throw fail("选段版本不属于这篇论文。", 409);
+      const rows = (p.annotations || []).filter((a) => a.documentId === doc.id);
+      const result = mergeHighlight(
+        rows,
+        doc,
+        b.selections,
+        b.color,
+        b.expectedAnnotations,
+      );
+      const combined = [
+        ...(p.annotations || []).filter((a) => a.documentId !== doc.id),
+        ...result.annotations,
+      ];
+      if (combined.length > 3000)
+        throw fail("这篇论文的标注过多，请先整理现有标注。");
+      p.annotations = combined;
+      store.put(w);
+      res.json(result);
+    },
+  );
+  app.delete(
+    "/api/workspaces/:wid/papers/:pid/annotations/groups/:aid",
+    (req, res) => {
+      const w = get(req.params.wid),
+        p = item(w, "papers", req.params.pid),
+        b = z
+          .object({
+            documentId: z.string().max(100),
+            expectedAnnotations: revisions,
+          })
+          .strict()
+          .parse(req.body);
+      const a = (p.annotations || []).find(
+        (a) => a.id === req.params.aid && a.documentId === b.documentId,
+      );
+      if (!a) throw fail("该标注已不存在，请重新打开原文。", 409);
+      const rows = p.annotations.filter(
+        (v) =>
+          v.documentId === a.documentId &&
+          (v.id === a.id || (a.groupId && v.groupId === a.groupId)),
+      );
+      checkAnnotationRevisions(rows, b.expectedAnnotations);
+      const removedIds = rows.map((a) => a.id);
+      p.annotations = p.annotations.filter((a) => !removedIds.includes(a.id));
+      store.put(w);
+      res.json({ removedIds });
+    },
+  );
   app.post("/api/workspaces/:wid/papers/:pid/annotations", (req, res) => {
     const w = get(req.params.wid);
     const b = anchorSchema
@@ -174,7 +259,12 @@ export function registerReading(app, { store, get, item, publicW, acquirer }) {
   );
   app.post("/api/workspaces/:wid/papers/:pid/paragraph-links", (req, res) => {
     const w = get(req.params.wid),
-      b = anchorSchema.extend({ nodeId: z.string().max(100) }).parse(req.body);
+      b = anchorSchema
+        .extend({
+          nodeId: z.string().max(100),
+          label: z.string().trim().min(1).max(10).optional(),
+        })
+        .parse(req.body);
     const { p } = locate(w, req.params.pid, b);
     if (!allDocuments(p).some((d) => d.id === b.documentId))
       throw fail("技术只能关联原文段落。", 409);
@@ -229,20 +319,30 @@ export function registerReading(app, { store, get, item, publicW, acquirer }) {
     const w = get(req.params.wid),
       node = item(w, "nodes", req.params.nid);
     res.json(
-      w.papers.flatMap((p) =>
-        allDocuments(p).flatMap((doc) =>
+      w.papers.flatMap((p) => {
+        const docs = allDocuments(p);
+        const current = docs.find((d) => d.id === p.document?.id);
+        const chosen =
+          current &&
+          paragraphLinks(w, p, current).some((l) => l.nodeId === node.id)
+            ? current
+            : docs.find((d) =>
+                paragraphLinks(w, p, d).some((l) => l.nodeId === node.id),
+              );
+        const selected = chosen ? [chosen] : [];
+        return selected.flatMap((doc) =>
           paragraphLinks(w, p, doc)
             .filter((l) => l.nodeId === node.id)
             .map((l) => ({
               ...l,
               paperId: p.id,
               paperTitle: p.title,
-              snippet: doc.blocks
-                .find((b) => b.id === l.blockId)
-                ?.text.slice(0, 180),
+              snippet:
+                l.quote?.slice(0, 180) ||
+                doc.blocks.find((b) => b.id === l.blockId)?.text.slice(0, 180),
             })),
-        ),
-      ),
+        );
+      }),
     );
   });
 }

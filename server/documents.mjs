@@ -1,3 +1,4 @@
+import { curatedParagraphLinks } from "./passage-links.mjs";
 import { createHash } from "node:crypto";
 import { load } from "cheerio";
 import sanitizeHtml from "sanitize-html";
@@ -300,67 +301,5 @@ export function installDocument(paper, document) {
   paper.document = document;
 }
 export function paragraphLinks(w, paper, doc = paper.document) {
-  if (!doc) return [];
-  const manual = (paper.paragraphLinks || []).filter(
-    (l) =>
-      l.documentId === doc.id &&
-      w.nodes.some((n) => n.id === l.nodeId) &&
-      doc.blocks.some((b) => b.id === l.blockId),
-  );
-  const output = [...manual];
-  for (const node of w.nodes.filter((n) => n.paperIds.includes(paper.id))) {
-    const names = [
-      ...new Set(
-        [node.englishName, node.chineseName, node.name].filter(Boolean),
-      ),
-    ];
-    const normalized = (value) =>
-      value
-        .normalize("NFKC")
-        .replace(/[\u2010-\u2015\u2212]/g, "-")
-        .replace(/\s+/g, " ");
-    const hits = doc.blocks
-      .filter(
-        (b) =>
-          b.kind !== "heading" &&
-          !/references|bibliography|参考文献/i.test(b.section) &&
-          names.some((name) => {
-            if (/[\u3400-\u9fff]/.test(name))
-              return name.length > 1 && b.text.includes(name);
-            const escaped = normalized(name).replace(
-              /[.*+?^${}()|[\]\\]/g,
-              "\\$&",
-            );
-            return (
-              name.length > 2 &&
-              new RegExp(`\\b${escaped}\\b`, "i").test(normalized(b.text))
-            );
-          }),
-      )
-      .slice(0, 5);
-    for (const block of hits)
-      if (!output.some((l) => l.nodeId === node.id && l.blockId === block.id))
-        output.push({
-          nodeId: node.id,
-          blockId: block.id,
-          documentId: doc.id,
-          source: "auto",
-        });
-  }
-  return output
-    .filter(
-      (l) =>
-        !(paper.blockedParagraphLinks || []).some(
-          (v) =>
-            v.documentId === l.documentId &&
-            v.blockId === l.blockId &&
-            v.nodeId === l.nodeId,
-        ),
-    )
-    .map((l) => ({
-      ...l,
-      nodeName: w.nodes.find((n) => n.id === l.nodeId)?.name,
-      section: doc.blocks.find((b) => b.id === l.blockId)?.section,
-      page: doc.blocks.find((b) => b.id === l.blockId)?.page,
-    }));
+  return curatedParagraphLinks(w, paper, doc);
 }

@@ -73,6 +73,15 @@ const { app, store, acquirer } = createApp({
               role: "该技术在本文组合相关特征。",
               implementation: "本文使用学习得到的注意力权重进行组合。",
             },
+            sourcePassages: (
+              JSON.parse(messages.at(-1).content).paper?.passages || []
+            )
+              .filter((p) => p.text === methodText)
+              .map((p) => ({
+                blockId: p.id,
+                label: "正式讲解",
+                quote: methodText,
+              })),
           },
         ],
         edges: [],

@@ -52,6 +52,7 @@ export function Graph({
   nodeSizes,
   timelineAutoWrap = false,
   timelineColumnLimit = 10,
+  onAddNode,
 }: {
   w: Workspace;
   nodeSizes?: Settings["nodeSizes"];
@@ -61,6 +62,7 @@ export function Graph({
   onExitFocus?: () => void;
   paperMode: boolean;
   onSelect: (kind: "paper" | "node", id: string) => void;
+  onAddNode?: () => void;
 }) {
   const layoutKey = `anistudy.graph-view.${w.id}`;
   const clusterKey = `anistudy.graph-clusters.${w.id}`;
@@ -560,6 +562,11 @@ export function Graph({
             </button>
           ))}
         </div>
+        {!paperMode && onAddNode && (
+          <button onClick={onAddNode} className="graph-add-node">
+            <Plus size={15} /> 新增
+          </button>
+        )}
         <div className="zoom-controls">
           <button
             aria-label="缩小图谱"

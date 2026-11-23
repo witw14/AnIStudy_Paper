@@ -1,0 +1,104 @@
+.detail-panel .detail-top {
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+.detail-tag-heading,
+.detail-author-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.detail-tag-heading .detail-tags {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  flex-wrap: wrap;
+}
+.info-pencil {
+  flex-shrink: 0;
+  padding: 5px;
+  color: #82958c;
+  border-radius: 4px;
+}
+.info-pencil:hover {
+  color: var(--green);
+  background: var(--soft);
+}
+.detail-author-heading .authors {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.paper-year-editor {
+  margin-bottom: 14px;
+}
+.tag-fields {
+  padding: 12px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tag-fields fieldset {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.tag-fields label {
+  margin: 0;
+  min-width: 0;
+}
+.tag-fields input,
+.tag-fields select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+}
+.tag-fields .inline-edit-actions,
+.tag-fields .text-link {
+  grid-column: 1 / -1;
+}
+.editable-text:has(> .editable-heading) {
+  margin-top: 24px;
+}
+.detail-panel .editable-heading h4 {
+  margin: 0 0 10px;
+}
+.detail-main-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+.detail-main-actions > button {
+  flex: 1;
+}
+.detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 25px;
+}
+.detail-footer .node-hide-option {
+  margin: 0;
+}
+.connections-heading {
+  margin-top: 24px;
+}
+.detail-panel .connections-heading h4 {
+  margin: 0;
+}
+.paper-document-status .evidence-note {
+  margin-bottom: 8px;
+}
+@media (max-width: 500px) {
+  .tag-fields fieldset {
+    grid-template-columns: 1fr;
+  }
+}

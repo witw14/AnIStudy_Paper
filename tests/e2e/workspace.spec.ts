@@ -66,9 +66,7 @@ test("core research workflow and persistent isolated workspace", async ({
   await page
     .getByRole("button", { name: "test-research", exact: true })
     .click();
-  await expect(
-    page.getByText("已提取 PDF 文本，可用于论文对话", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("已提取正文", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "关闭详情" }).click();
   await page.getByRole("button", { name: "打开模型设置", exact: true }).click();
   await expect(page.getByLabel("模型名称")).toBeVisible();

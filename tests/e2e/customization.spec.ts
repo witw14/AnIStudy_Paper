@@ -261,23 +261,29 @@ test("manual priority choices persist and can return control to AI", async ({
     const node = page.locator('.graph-node[data-node-id="cnn"]');
     await node.click();
     const detail = page.getByRole("dialog", { name: "节点详情" });
-    await detail.getByRole("button", { name: "更改信息", exact: true }).click();
-    await detail
-      .getByRole("group", { name: "选择节点级别" })
-      .getByRole("button", { name: "次要", exact: true })
-      .click();
-    await expect(detail.getByText("用户设定", { exact: true })).toBeVisible();
+    await detail.getByRole("button", { name: "编辑标签", exact: true }).click();
+    await detail.getByLabel("节点级别", { exact: true }).selectOption("minor");
+    await detail.getByRole("button", { name: "保存标签", exact: true }).click();
+    expect(
+      (await (await request.get(`/api/workspaces/${id}`)).json()).nodes.find(
+        (n: { id: string }) => n.id === "cnn",
+      ).importanceSource,
+    ).toBe("manual");
     await detail.getByRole("button", { name: "关闭详情" }).click();
     await expect(node.locator(".node-shape")).toHaveAttribute("r", "7");
     await page.reload();
     await page.getByRole("button", { name: "技术图谱", exact: true }).click();
     await expect(node.locator(".node-shape")).toHaveAttribute("r", "7");
     await node.click();
-    await detail.getByRole("button", { name: "更改信息", exact: true }).click();
+    await detail.getByRole("button", { name: "编辑标签", exact: true }).click();
     await detail
       .getByRole("button", { name: "允许 AI 重新定级", exact: true })
       .click();
-    await expect(detail.getByText("用户设定", { exact: true })).toHaveCount(0);
+    expect(
+      (await (await request.get(`/api/workspaces/${id}`)).json()).nodes.find(
+        (n: { id: string }) => n.id === "cnn",
+      ).importanceSource,
+    ).toBe("ai");
   } finally {
     await request.patch(`/api/workspaces/${id}/nodes/cnn`, {
       data: { importance: original.importance },
